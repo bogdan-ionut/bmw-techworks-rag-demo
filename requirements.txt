@@ -1,0 +1,17 @@
+langchain
+langchain-core
+langchain-community
+langchain-text-splitters
+
+chromadb
+
+langchain-openai
+langchain-anthropic
+langchain-google-genai
+
+fastapi
+uvicorn
+
+python-dotenv
+boto3
+pydantic

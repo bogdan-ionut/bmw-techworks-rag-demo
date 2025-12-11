@@ -6,9 +6,9 @@ venv/
 .idea/
 
 # Date sensibile
-data/*
+
 .env
-chroma_db/
+
 
 # Altele
 __pycache__/
