@@ -10,6 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
     <style>
       :root {
         --bg-dark: #020617;
@@ -196,9 +197,55 @@
       .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 24px; grid-column: 1/-1; }
 
       @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } header { position: static; } }
+
+      .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.3s ease, visibility 0s linear 0.3s;
+      }
+      .modal-overlay.visible {
+        opacity: 1;
+        visibility: visible;
+        transition-delay: 0s;
+      }
+      .modal-content {
+        background: var(--bg-dark);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 30px;
+        width: 90%;
+        max-width: 900px;
+        box-shadow: var(--shadow);
+        transform: scale(0.95);
+        transition: transform 0.3s ease;
+      }
+      .modal-overlay.visible .modal-content {
+        transform: scale(1);
+      }
+      .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     </style>
   </head>
   <body>
+    <div id="flowchart-modal" class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="panel-title">Live Application Architecture</div>
+          <button id="close-flowchart-modal" class="ghost-btn">Close</button>
+        </div>
+        <div class="mermaid" id="flowchart-container"></div>
+      </div>
+    </div>
+
     <header>
       <div class="brand-area">
         <div class="brand">BMW TechWorks</div>
@@ -209,6 +256,7 @@
         <span id="meta-docs">Docs: —</span>
         <span id="meta-time">Latency: —</span>
         <span id="meta-uniq">Cards: —</span>
+        <button id="view-flowchart" class="ghost-btn" style="margin-left: 12px;">View Architecture</button>
       </div>
     </header>
 
@@ -602,6 +650,118 @@
         copyAnswerBtn.textContent = "Copied ✅";
         setTimeout(() => (copyAnswerBtn.textContent = old), 900);
       });
+
+      const flowchartModal = document.getElementById("flowchart-modal");
+      const viewFlowchartBtn = document.getElementById("view-flowchart");
+      const closeFlowchartBtn = document.getElementById("close-flowchart-modal");
+      const flowchartContainer = document.getElementById("flowchart-container");
+      let lastArch = null;
+
+      async function renderFlowchart(arch, retrieval_sec, llm_sec) {
+        if (!arch) {
+          flowchartContainer.innerHTML = "Arhitectura va fi afișată după prima căutare.";
+          return;
+        }
+
+        const definition = `
+          graph TD
+            A[User Query] --> B(FastAPI Backend);
+            B --> C{Embedding Model};
+            C --> D[Vector DB: ${arch.vectordb}];
+            D -- Latency: ${retrieval_sec}s --> E(Retrieved Docs);
+            E --> F{LLM Provider: ${arch.llm_provider}};
+            F -- Latency: ${llm_sec}s --> G[Final Answer];
+
+            subgraph "1. Query"
+              A
+            end
+            subgraph "2. Retrieval"
+              C((fa:fa-brain ${arch.embedding_model}))
+              D((fa:fa-database ${arch.vectordb}))
+            end
+            subgraph "3. Synthesis"
+              F((fa:fa-robot ${arch.llm_provider}))
+            end
+            subgraph "4. Response"
+              G
+            end
+
+            style A fill:#2563eb,stroke:#fff,stroke-width:2px
+            style G fill:#10b981,stroke:#fff,stroke-width:2px
+        `;
+
+        const { svg } = await mermaid.render('mermaid-svg', definition);
+        flowchartContainer.innerHTML = svg;
+      }
+
+      viewFlowchartBtn.addEventListener("click", () => {
+        flowchartModal.classList.add("visible");
+        renderFlowchart(lastArch?.arch, lastArch?.retrieval_sec, lastArch?.llm_sec);
+      });
+
+      closeFlowchartBtn.addEventListener("click", () => {
+        flowchartModal.classList.remove("visible");
+      });
+
+      flowchartModal.addEventListener("click", (e) => {
+        if (e.target === flowchartModal) {
+          flowchartModal.classList.remove("visible");
+        }
+      });
+
+      function updateLastArch(data) {
+        if (data?.architecture) {
+          lastArch = {
+            arch: data.architecture,
+            retrieval_sec: data.retrieval_sec ?? 'N/A',
+            llm_sec: data.llm_sec ?? 'N/A'
+          };
+        }
+      }
+
+      async function doSearch(query) {
+        const k = parseInt(cardsKEl.value || "24", 10);
+        const started = performance.now();
+        const res = await fetch(`/search?q=${encodeURIComponent(query)}&k=${k}`);
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        const elapsed = ((performance.now() - started) / 1000).toFixed(2);
+
+        renderProfiles(data.sources || []);
+        metaDocs.textContent = `Docs: ${data.retrieved_docs ?? "—"} (search)`;
+        metaTime.textContent = `Latency: ${data.latency_sec ?? elapsed}s (search)`;
+        metaModel.textContent = `Model: —`;
+        statusEl.textContent = "Search complete";
+        updateLastArch(data);
+        return data;
+      }
+
+      async function doAnalysis(query) {
+        const started = performance.now();
+        const res = await fetch("/query", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query, with_llm: true }),
+          signal: abortController.signal,
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        const elapsed = ((performance.now() - started) / 1000).toFixed(2);
+
+        lastAnswerRaw = data.answer || "";
+        answerEl.innerHTML = formatAnswer(lastAnswerRaw || "Nu am putut genera un răspuns.");
+
+        const r = data.retrieval_sec ?? "—";
+        const l = data.llm_sec ?? "—";
+        metaModel.textContent = `Model: ${data.llm_used || "—"}`;
+        metaDocs.textContent = `Docs: ${data.retrieved_docs ?? "—"} (rag)`;
+        metaTime.textContent = `Latency: ${data.latency_sec ?? elapsed}s (R:${r}s L:${l}s)`;
+
+        answerHint.textContent = `AI analysis: ${data.latency_sec ?? elapsed}s`;
+        statusEl.textContent = "AI complete";
+        updateLastArch(data);
+        return data;
+      }
     </script>
   </body>
 </html>

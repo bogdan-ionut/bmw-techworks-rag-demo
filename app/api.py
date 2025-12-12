@@ -349,6 +349,10 @@ def run_search(query: str, k: int) -> Dict[str, Any]:
         "latency_sec": round(time.time() - start, 2),
         "retrieval_sec": round(t1 - t0, 2),
         "k": k,
+        "architecture": {
+            "embedding_model": EMBED_MODEL,
+            "vectordb": "Chroma",
+        }
     }
     _cache_set(cache_key, result)
     return result
@@ -388,6 +392,11 @@ def run_rag(query: str, k: int, with_llm: bool) -> Dict[str, Any]:
             "latency_sec": round(time.time() - start, 2),
             "retrieval_sec": round(t1 - t0, 2),
             "llm_sec": 0.0,
+            "architecture": {
+                "embedding_model": EMBED_MODEL,
+                "vectordb": "Chroma",
+                "llm_provider": provider,
+            }
         }
 
     # Cache LLM answers (great for demos)
@@ -421,6 +430,11 @@ def run_rag(query: str, k: int, with_llm: bool) -> Dict[str, Any]:
         "latency_sec": round(t3 - start, 2),
         "retrieval_sec": round(t1 - t0, 2),
         "llm_sec": round(t3 - t2, 2),
+        "architecture": {
+            "embedding_model": EMBED_MODEL,
+            "vectordb": "Chroma",
+            "llm_provider": provider,
+        }
     }
     _cache_set(cache_key, result)
     return result

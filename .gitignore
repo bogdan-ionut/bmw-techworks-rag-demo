@@ -16,3 +16,4 @@ __pycache__/
 *.pyo
 *.pyd
 *.log
+chroma_db/
