@@ -185,7 +185,7 @@
 
     <div class="hero">
       <h1>Răspunsuri clare, carduri aerisite</h1>
-      <p>Experimentează o interfață curată pentru întrebări de tip interview: roluri, tehnologie, educație sau locație. Vizualizezi răspunsul AI și cardurile deduplicate într-un format elegant.</p>
+      <p>Interfață dedicată pentru întrebări de tip interview: roluri, tehnologie, educație sau locație. Răspunsurile AI și cardurile deduplicate sunt livrate într-un format pregătit pentru demo.</p>
     </div>
 
     <div class="search">
@@ -196,7 +196,7 @@
             <span id="btn-text">Generează</span>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
           </button>
-          <small id="status" style="color: var(--muted); font-size: 12px;">Idle</small>
+            <small id="status" style="color: var(--muted); font-size: 12px;">Pregătit</small>
         </div>
       </div>
     </div>
@@ -213,7 +213,7 @@
         <section class="panel">
           <div class="panel-header">
             <div class="panel-title">AI Analysis</div>
-            <div class="pill" id="answer-hint">Gata de întrebare</div>
+            <div class="pill" id="answer-hint">Pregătit pentru întrebare</div>
           </div>
           <div class="toolbar">
             <button class="ghost-btn" id="copy-answer">Copy answer</button>
@@ -278,7 +278,19 @@
       }
 
       function normalizeLinkedIn(url = "") {
-        return url.trim().replace(/\/$/, "").toLowerCase();
+        const clean = url.trim().split(/[?#]/)[0].replace(/\/$/, "");
+        try {
+          const parsed = new URL(clean.toLowerCase());
+          const host = parsed.hostname.endsWith("linkedin.com")
+            ? "linkedin.com"
+            : parsed.hostname;
+          const path = parsed.pathname.startsWith("/in/")
+            ? parsed.pathname
+            : `/in/${parsed.pathname.replace(/^\//, "")}`;
+          return `https://${host}${path.replace(/\/$/, "")}`;
+        } catch (e) {
+          return clean.toLowerCase();
+        }
       }
 
       function canonicalVmid(vmid) {
@@ -421,7 +433,7 @@
       function setLoading(isLoading) {
         askBtn.disabled = isLoading;
         btnText.textContent = isLoading ? "Se generează" : "Generează";
-        statusEl.textContent = isLoading ? "Thinking..." : "Idle";
+        statusEl.textContent = isLoading ? "Se procesează" : "Pregătit";
         answerEl.style.opacity = isLoading ? 0.6 : 1;
         profilesEl.style.opacity = isLoading ? 0.6 : 1;
       }
@@ -434,7 +446,7 @@
         abortController = new AbortController();
 
         setLoading(true);
-        answerHint.textContent = "Se compilează răspunsul...";
+        answerHint.textContent = "Se generează răspunsul...";
         profilesEl.innerHTML = "";
         cardCountEl.textContent = "0 carduri";
         answerEl.classList.remove("placeholder");
