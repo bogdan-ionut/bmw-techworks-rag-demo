@@ -4,340 +4,753 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BMW TechWorks • RAG Demo</title>
-
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-
     <style>
       :root {
-        --bg: #0b1021;
-        --panel: #0f172a;
-        --card: #111827;
-        --accent: #38bdf8;
-        --muted: #9ca3af;
+        --bg: #070a14;
+        --panel: rgba(255, 255, 255, 0.04);
+        --panel2: rgba(255, 255, 255, 0.06);
         --border: rgba(255, 255, 255, 0.08);
-        --glow: rgba(56, 189, 248, 0.25);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.62);
+        --muted2: rgba(255, 255, 255, 0.45);
+        --accent: #38bdf8;
+        --good: #22c55e;
+        --warn: #f59e0b;
+        --bad: #ef4444;
+        --shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+        --radius: 18px;
       }
 
       * { box-sizing: border-box; }
+      html, body { height: 100%; }
       body {
         margin: 0;
-        font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif;
+        color: var(--text);
         background:
-          radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.18), transparent 35%),
-          radial-gradient(circle at 80% 0%, rgba(94, 234, 212, 0.18), transparent 40%),
+          radial-gradient(1200px 600px at 15% 10%, rgba(56,189,248,0.18), transparent 60%),
+          radial-gradient(900px 500px at 90% 0%, rgba(34,197,94,0.12), transparent 60%),
+          radial-gradient(1000px 700px at 70% 100%, rgba(99,102,241,0.12), transparent 60%),
           var(--bg);
-        color: #e5e7eb;
-        min-height: 100vh;
       }
 
-      header { padding: 40px 5vw 10px; }
-      h1 {
-        margin: 0;
-        font-size: 32px;
-        letter-spacing: -0.5px;
+      .container {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 28px 18px 60px;
+      }
+
+      .topbar {
         display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-      h1 .tag {
-        background: linear-gradient(135deg, #38bdf8, #14b8a6);
-        color: #0b1021;
-        padding: 4px 10px;
-        border-radius: 999px;
-        font-size: 13px;
-        font-weight: 700;
-        box-shadow: 0 8px 24px var(--glow);
-      }
-      p.subtitle { margin: 8px 0 0; color: var(--muted); }
-
-      .panel {
-        background: linear-gradient(135deg, rgba(56, 189, 248, 0.08), rgba(17, 24, 39, 0.9));
-        border: 1px solid var(--border);
-        border-radius: 18px;
-        padding: 16px;
-        margin: 24px 5vw 8px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
-        backdrop-filter: blur(8px);
-      }
-
-      .row { display: flex; flex-wrap: wrap; gap: 12px; }
-      textarea {
-        flex: 1;
-        min-width: 260px;
-        min-height: 92px;
-        padding: 14px 16px;
-        background: rgba(17, 24, 39, 0.8);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        color: #e5e7eb;
-        font-size: 15px;
-        resize: vertical;
-        outline: none;
-      }
-      textarea:focus {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
-      }
-
-      button {
-        background: linear-gradient(135deg, #38bdf8, #0ea5e9);
-        color: #0b1021;
-        border: none;
-        padding: 14px 18px;
-        border-radius: 12px;
-        font-weight: 800;
-        cursor: pointer;
-        box-shadow: 0 12px 30px var(--glow);
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        height: 48px;
-        align-self: flex-start;
-      }
-      button:disabled { opacity: 0.6; cursor: not-allowed; }
-
-      .pills { margin-top: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
-      .pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        background: rgba(56, 189, 248, 0.12);
-        color: #e0f2fe;
-        padding: 6px 12px;
-        border-radius: 999px;
-        font-weight: 600;
-        font-size: 13px;
-      }
-
-      .layout {
-        display: grid;
-        grid-template-columns: 1.2fr 0.8fr;
-        gap: 18px;
-        padding: 12px 5vw 60px;
-      }
-
-      .card {
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(17, 24, 39, 0.9));
-        border: 1px solid var(--border);
-        border-radius: 18px;
-        padding: 16px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-        position: relative;
-        overflow: hidden;
-      }
-
-      .card::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background: radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.08), transparent 45%);
-        pointer-events: none;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 14px;
+        margin-bottom: 18px;
       }
 
       .title {
-        margin: 0 0 10px;
-        font-size: 14px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .title h1 {
+        margin: 0;
+        font-size: 24px;
+        letter-spacing: -0.4px;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .badge {
+        font-size: 12px;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 999px;
+        color: #05111a;
+        background: linear-gradient(135deg, #38bdf8, #22c55e);
+        box-shadow: 0 12px 30px rgba(56,189,248,0.18);
+      }
+
+      .subtitle {
+        margin: 0;
         color: var(--muted);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+
+      .meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+        margin-top: 4px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.03);
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .pill strong { color: var(--text); font-weight: 700; }
+
+      .panel {
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.02));
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .ask {
+        padding: 14px;
+      }
+
+      .ask-grid {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        align-items: start;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 86px;
+        resize: vertical;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: rgba(0,0,0,0.22);
+        color: var(--text);
+        padding: 12px 12px;
+        font-size: 14px;
+        line-height: 1.4;
+        outline: none;
+      }
+
+      textarea:focus {
+        border-color: rgba(56,189,248,0.6);
+        box-shadow: 0 0 0 3px rgba(56,189,248,0.12);
+      }
+
+      .btn {
+        border: 0;
+        cursor: pointer;
+        border-radius: 14px;
+        padding: 12px 14px;
+        font-weight: 800;
+        color: #04121a;
+        background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+        box-shadow: 0 16px 32px rgba(56,189,248,0.16);
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 160px;
+        justify-content: center;
+      }
+
+      .btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .chip {
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.03);
+        color: var(--muted);
+        padding: 7px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .chip:hover {
+        border-color: rgba(56,189,248,0.35);
+        color: var(--text);
+      }
+
+      .content {
+        display: grid;
+        grid-template-columns: 1.35fr 1fr;
+        gap: 14px;
+        margin-top: 14px;
+      }
+
+      .box {
+        padding: 14px;
+      }
+
+      .box h2 {
+        margin: 0 0 10px;
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted2);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .hint {
+        font-size: 11px;
+        color: var(--muted2);
+        letter-spacing: normal;
+        text-transform: none;
       }
 
       .answer {
-        white-space: pre-wrap;
+        border-top: 1px solid var(--border);
+        padding-top: 12px;
+        color: var(--text);
+        font-size: 14px;
         line-height: 1.55;
-        font-size: 15px;
-        color: #e5e7eb;
+        white-space: normal;
       }
 
-      .sources { display: grid; gap: 12px; }
-      .source {
-        border: 1px solid var(--border);
-        border-radius: 14px;
-        padding: 12px;
-        background: rgba(255, 255, 255, 0.03);
-      }
-      .source .name { font-weight: 800; margin: 0 0 6px; }
-      .meta { color: #cbd5e1; font-size: 13px; display: grid; gap: 4px; }
-      a { color: #38bdf8; text-decoration: none; font-weight: 700; }
+      .answer a { color: var(--accent); text-decoration: none; font-weight: 700; }
+      .answer a:hover { text-decoration: underline; }
+      .answer .muted { color: var(--muted); }
 
-      .examples { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-      .chip {
-        border: 1px solid var(--border);
-        background: rgba(255,255,255,0.04);
-        color: #e5e7eb;
+      .sources-wrap {
+        border-top: 1px solid var(--border);
+        padding-top: 12px;
+      }
+
+      .carousel {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(260px, 1fr);
+        gap: 12px;
+        overflow-x: auto;
+        padding-bottom: 8px;
+        scroll-snap-type: x mandatory;
+      }
+
+      .carousel::-webkit-scrollbar { height: 10px; }
+      .carousel::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,0.10);
         border-radius: 999px;
+      }
+
+      .card {
+        scroll-snap-align: start;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(0,0,0,0.18));
+        box-shadow: 0 14px 38px rgba(0,0,0,0.35);
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-height: 320px;
+      }
+
+      .card-top {
+        display: grid;
+        grid-template-columns: 62px 1fr;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .avatar {
+        width: 62px;
+        height: 62px;
+        border-radius: 16px;
+        object-fit: cover;
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.05);
+      }
+
+      .name {
+        font-weight: 800;
+        font-size: 15px;
+        margin: 0;
+        line-height: 1.2;
+      }
+
+      .headline {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.25;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .tag {
+        font-size: 12px;
+        color: var(--text);
+        background: rgba(255,255,255,0.04);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 6px 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .btn-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .mini {
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.03);
+        color: var(--text);
+        font-weight: 800;
+        font-size: 12px;
         padding: 8px 10px;
-        font-size: 13px;
+        border-radius: 12px;
         cursor: pointer;
       }
 
+      .mini.primary {
+        background: rgba(56,189,248,0.10);
+        border-color: rgba(56,189,248,0.25);
+      }
+
+      .mini:hover { border-color: rgba(255,255,255,0.18); }
+
+      .section {
+        border-top: 1px solid var(--border);
+        padding-top: 10px;
+        display: grid;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .kv b { color: var(--text); }
+
+      details {
+        border-top: 1px solid var(--border);
+        padding-top: 10px;
+      }
+
+      details summary {
+        cursor: pointer;
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      pre {
+        margin: 10px 0 0;
+        padding: 10px;
+        background: rgba(0,0,0,0.35);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: auto;
+        color: rgba(255,255,255,0.85);
+        font-size: 11px;
+      }
+
+      .statusline {
+        margin-top: 10px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+      }
+
+      .left-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .dot {
+        width: 10px; height: 10px; border-radius: 999px;
+        background: rgba(255,255,255,0.25);
+      }
+      .dot.loading { background: var(--warn); box-shadow: 0 0 0 4px rgba(245,158,11,0.12); }
+      .dot.ok { background: var(--good); box-shadow: 0 0 0 4px rgba(34,197,94,0.12); }
+      .dot.err { background: var(--bad); box-shadow: 0 0 0 4px rgba(239,68,68,0.12); }
+
       @media (max-width: 980px) {
-        .layout { grid-template-columns: 1fr; }
-        header { padding: 24px 6vw 8px; }
-        .panel { margin: 18px 6vw 8px; }
+        .content { grid-template-columns: 1fr; }
+        .ask-grid { grid-template-columns: 1fr; }
+        .btn { width: 100%; min-width: unset; }
       }
     </style>
   </head>
 
   <body>
-    <header>
-      <h1>BMW TechWorks <span class="tag">RAG Demo</span></h1>
-      <p class="subtitle">
-        Întreabă în limbaj natural. Backend-ul face retrieval din Chroma + LLM (OpenAI/Anthropic/Gemini) și returnează răspuns + surse.
-      </p>
-    </header>
+    <div class="container">
+      <div class="topbar">
+        <div class="title">
+          <h1>BMW TechWorks <span class="badge">RAG Demo</span></h1>
+          <p class="subtitle">
+            Întreabă în limbaj natural. Backend-ul face retrieval din Chroma + LLM și returnează răspuns + surse (profiluri).
+            <span class="subtitle" style="display:block; margin-top:4px; color: rgba(255,255,255,0.45);">
+              Tip: folosește întrebări “interview style” (roluri, tech stack, locații, senioritate, studenți, etc).
+            </span>
+          </p>
+        </div>
 
-    <section class="panel">
-      <div class="row">
-        <textarea id="q" placeholder="Ex: Cine sunt Infrastructure Engineers în Cluj? Dă-mi nume + LinkedIn + educație."></textarea>
-        <button id="ask" type="button">🧠 Întreabă RAG</button>
+        <div class="meta-row">
+          <div class="pill"><span>Model:</span> <strong id="meta-model">—</strong></div>
+          <div class="pill"><span>k:</span> <strong id="meta-k">—</strong></div>
+          <div class="pill"><span>Latency:</span> <strong id="meta-latency">—</strong></div>
+          <div class="pill"><span>Docs:</span> <strong id="meta-docs">—</strong></div>
+          <div class="pill"><span>Employees:</span> <strong id="meta-uniq">—</strong></div>
+        </div>
       </div>
 
-      <div class="examples">
-        <div class="chip" data-q="Cine sunt Infrastructure Engineers în Cluj? Dă-mi nume + LinkedIn + educație.">Infrastructure Engineers</div>
-        <div class="chip" data-q="Avem oameni pe zona Talent Acquisition / HR? Listează-i cu rol și locație.">HR / Talent</div>
-        <div class="chip" data-q="Caută persoane cu 'People' în headline și spune-mi cine sunt.">People în headline</div>
-        <div class="chip" data-q="Câți angajați au 'Student' în headline și în ce rol sunt acum?">Students</div>
+      <div class="panel ask">
+        <div class="ask-grid">
+          <div>
+            <textarea id="q" placeholder="Ex: Avem oameni pe Talent Acquisition / HR? Listează cu rol + locație + LinkedIn."></textarea>
+            <div class="chips">
+              <div class="chip" data-q="Avem oameni în zona HR / Talent Acquisition? Listează nume, rol, locație și LinkedIn.">HR / Talent</div>
+              <div class="chip" data-q="Găsește Infrastructure Engineers (sau DevOps/SRE) și spune unde sunt localizați.">Infrastructure</div>
+              <div class="chip" data-q="Cine sunt studenți (în headline) și pe ce tehnologii par să fie?">Students</div>
+              <div class="chip" data-q="Câți angajați au în headline 'AI' sau 'Machine Learning'? Dă-mi lista.">AI / ML</div>
+              <div class="chip" data-q="Caută oameni care au UBB / UTCN la educație. Listează.">UBB / UTCN</div>
+            </div>
+
+            <div class="statusline">
+              <div class="left-status">
+                <span class="dot" id="dot"></span>
+                <span id="status">idle</span>
+                <span class="pill" style="padding:6px 10px;">Ctrl+Enter pentru submit</span>
+              </div>
+              <div class="left-status">
+                <button class="mini" id="btn-cancel" style="display:none;">Cancel</button>
+                <button class="mini" id="btn-copy-answer" title="Copiază răspunsul">Copy Answer</button>
+              </div>
+            </div>
+          </div>
+
+          <button id="btn" class="btn">💬 Întreabă RAG</button>
+        </div>
       </div>
 
-      <div class="pills">
-        <span class="pill" id="status">Status: idle</span>
-        <span class="pill" id="stats">—</span>
-      </div>
-    </section>
+      <div class="content">
+        <div class="panel box">
+          <h2>Răspuns <span class="hint" id="answer-hint"></span></h2>
+          <div class="answer" id="answer">
+            <span class="muted">Scrie o întrebare și apasă “Întreabă RAG”.</span>
+          </div>
+        </div>
 
-    <section class="layout">
-      <div class="card">
-        <p class="title">Răspuns</p>
-        <div class="answer" id="answer">—</div>
+        <div class="panel box">
+          <h2>Surse (Employee Cards) <span class="hint" id="src-hint"></span></h2>
+          <div class="sources-wrap">
+            <div class="carousel" id="carousel"></div>
+          </div>
+        </div>
       </div>
-
-      <div class="card">
-        <p class="title">Surse (retrieved)</p>
-        <div class="sources" id="sources"></div>
-      </div>
-    </section>
+    </div>
 
     <script>
-      const qEl = document.getElementById("q");
-      const askBtn = document.getElementById("ask");
-      const statusEl = document.getElementById("status");
-      const statsEl = document.getElementById("stats");
-      const answerEl = document.getElementById("answer");
-      const sourcesEl = document.getElementById("sources");
+      const $ = (id) => document.getElementById(id);
 
-      function setLoading(isLoading) {
-        askBtn.disabled = isLoading;
-        statusEl.textContent = isLoading ? "Status: thinking..." : "Status: idle";
+      const q = $("q");
+      const btn = $("btn");
+      const cancelBtn = $("btn-cancel");
+      const copyAnswerBtn = $("btn-copy-answer");
+      const dot = $("dot");
+      const statusEl = $("status");
+
+      const answerEl = $("answer");
+      const carousel = $("carousel");
+
+      const metaModel = $("meta-model");
+      const metaK = $("meta-k");
+      const metaLatency = $("meta-latency");
+      const metaDocs = $("meta-docs");
+      const metaUniq = $("meta-uniq");
+
+      const answerHint = $("answer-hint");
+      const srcHint = $("src-hint");
+
+      let abortController = null;
+      let lastAnswerRaw = "";
+
+      function setStatus(state, text) {
+        statusEl.textContent = text;
+        dot.className = "dot";
+        if (state === "loading") dot.classList.add("loading");
+        if (state === "ok") dot.classList.add("ok");
+        if (state === "err") dot.classList.add("err");
       }
 
-      function renderSources(sources) {
-        sourcesEl.innerHTML = "";
-        if (!sources || !sources.length) {
-          sourcesEl.innerHTML = "<div style='color:#9ca3af'>—</div>";
-          return;
+      function escapeHtml(str) {
+        return String(str)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      // super lightweight markdown-ish renderer: **bold**, links [t](url), line breaks
+      function renderAnswer(md) {
+        let s = escapeHtml(md || "");
+        s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+        s = s.replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+        s = s.replace(/\n/g, "<br/>");
+        return s;
+      }
+
+      function dedupeSources(sources) {
+        const map = new Map();
+        for (const s of (sources || [])) {
+          const key = s.vmid || s.profile_url || s.full_name || s.source_id || JSON.stringify(s);
+          if (!map.has(key)) map.set(key, s);
+          else {
+            // merge missing fields
+            const existing = map.get(key);
+            for (const [k, v] of Object.entries(s)) {
+              if (existing[k] == null || existing[k] === "") existing[k] = v;
+            }
+            map.set(key, existing);
+          }
         }
+        return Array.from(map.values());
+      }
 
-        for (const s of sources) {
-          const div = document.createElement("div");
-          div.className = "source";
-
-          const name = document.createElement("p");
-          name.className = "name";
-          name.textContent = s.full_name || "Unknown";
-          div.appendChild(name);
-
-          const meta = document.createElement("div");
-          meta.className = "meta";
-
-          const line1 = [];
-          if (s.job_title) line1.push(s.job_title);
-          if (s.job_title_2) line1.push(" / " + s.job_title_2);
-          if (line1.length) {
-            const p = document.createElement("div");
-            p.textContent = line1.join("");
-            meta.appendChild(p);
-          }
-
-          if (s.location) {
-            const p = document.createElement("div");
-            p.textContent = "📍 " + s.location;
-            meta.appendChild(p);
-          }
-
-          if (s.headline) {
-            const p = document.createElement("div");
-            p.textContent = s.headline;
-            meta.appendChild(p);
-          }
-
-          if (s.profile_url) {
-            const a = document.createElement("a");
-            a.href = s.profile_url;
-            a.target = "_blank";
-            a.rel = "noopener noreferrer";
-            a.textContent = "LinkedIn";
-            meta.appendChild(a);
-          }
-
-          div.appendChild(meta);
-          sourcesEl.appendChild(div);
+      async function copyToClipboard(text) {
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch (e) {
+          // fallback
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
         }
       }
 
-      async function ask() {
-        const query = qEl.value.trim();
+      function cardTag(icon, text) {
+        if (!text) return "";
+        return `<span class="tag">${icon ? icon + " " : ""}${escapeHtml(text)}</span>`;
+      }
+
+      function buildCard(s, idx) {
+        const img = s.profile_image_url ? escapeHtml(s.profile_image_url) : "";
+        const name = s.full_name || "Nume necunoscut";
+        const headline = s.headline || "";
+        const location = s.location || "";
+        const job1 = [s.job_title, s.job_date_range].filter(Boolean).join(" • ");
+        const job2 = [s.job_title_2, s.job_date_range_2].filter(Boolean).join(" • ");
+
+        const edu1 = [s.school, s.school_degree, s.school_date_range].filter(Boolean).join(" • ");
+        const edu2 = [s.school_2, s.school_degree_2, s.school_date_range_2].filter(Boolean).join(" • ");
+
+        const profileUrl = s.profile_url || "";
+        const vmid = s.vmid || "";
+
+        const avatarSrc = img || `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+          <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120">
+            <defs>
+              <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+                <stop stop-color="#38bdf8" offset="0"/>
+                <stop stop-color="#22c55e" offset="1"/>
+              </linearGradient>
+            </defs>
+            <rect width="120" height="120" rx="24" fill="url(#g)"/>
+            <text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Inter,Arial" font-size="28" fill="#04121a" font-weight="800">BMW</text>
+          </svg>
+        `)}`;
+
+        const raw = escapeHtml(JSON.stringify(s, null, 2));
+
+        return `
+          <div class="card">
+            <div class="card-top">
+              <img class="avatar" src="${avatarSrc}" alt="photo" referrerpolicy="no-referrer" />
+              <div>
+                <p class="name">#${idx + 1} • ${escapeHtml(name)}</p>
+                ${headline ? `<p class="headline">${escapeHtml(headline)}</p>` : `<p class="headline" style="opacity:.7">—</p>`}
+              </div>
+            </div>
+
+            <div class="tags">
+              ${location ? cardTag("📍", location) : ""}
+              ${s.job_title ? cardTag("💼", s.job_title) : ""}
+              ${s.job_title_2 ? cardTag("🧩", s.job_title_2) : ""}
+            </div>
+
+            <div class="btn-row">
+              ${
+                profileUrl
+                  ? `<a class="mini primary" href="${escapeHtml(profileUrl)}" target="_blank" rel="noopener noreferrer">LinkedIn ↗</a>`
+                  : `<span class="mini" style="opacity:.6; cursor:default;">No LinkedIn</span>`
+              }
+              <button class="mini" data-copy="${escapeHtml(profileUrl)}">Copy URL</button>
+              <button class="mini" data-copy="${escapeHtml(vmid)}">Copy VMID</button>
+            </div>
+
+            <div class="section">
+              ${job1 ? `<div class="kv"><b>Current:</b> ${escapeHtml(job1)}</div>` : ""}
+              ${job2 ? `<div class="kv"><b>Previous:</b> ${escapeHtml(job2)}</div>` : ""}
+              ${edu1 ? `<div class="kv"><b>Edu 1:</b> ${escapeHtml(edu1)}</div>` : ""}
+              ${edu2 ? `<div class="kv"><b>Edu 2:</b> ${escapeHtml(edu2)}</div>` : ""}
+            </div>
+
+            <details>
+              <summary>More details (raw)</summary>
+              <pre>${raw}</pre>
+            </details>
+          </div>
+        `;
+      }
+
+      function wireCardButtons() {
+        carousel.querySelectorAll("button[data-copy]").forEach((b) => {
+          b.addEventListener("click", async () => {
+            const val = b.getAttribute("data-copy") || "";
+            if (!val) return;
+            await copyToClipboard(val);
+            const old = b.textContent;
+            b.textContent = "Copied ✅";
+            setTimeout(() => (b.textContent = old), 900);
+          });
+        });
+      }
+
+      function resetMeta() {
+        metaModel.textContent = "—";
+        metaK.textContent = "—";
+        metaLatency.textContent = "—";
+        metaDocs.textContent = "—";
+        metaUniq.textContent = "—";
+      }
+
+      async function askRag() {
+        const query = (q.value || "").trim();
         if (!query) return;
 
-        setLoading(true);
-        answerEl.textContent = "Se generează răspunsul...";
-        renderSources([]);
+        // cancel previous
+        if (abortController) abortController.abort();
+        abortController = new AbortController();
 
-        const t0 = performance.now();
+        btn.disabled = true;
+        cancelBtn.style.display = "inline-flex";
+        setStatus("loading", "loading…");
+        answerHint.textContent = "";
+        srcHint.textContent = "";
+        answerEl.innerHTML = `<span class="muted">Se generează răspunsul…</span>`;
+        carousel.innerHTML = "";
+        resetMeta();
+
+        const started = performance.now();
+
         try {
           const res = await fetch("/query", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query })
+            body: JSON.stringify({ query }),
+            signal: abortController.signal,
           });
 
           if (!res.ok) {
-            const txt = await res.text();
-            throw new Error(`HTTP ${res.status}: ${txt}`);
+            const t = await res.text();
+            throw new Error(`HTTP ${res.status}: ${t}`);
           }
 
           const data = await res.json();
-          const t1 = performance.now();
+          const elapsed = ((performance.now() - started) / 1000).toFixed(2);
 
-          answerEl.textContent = data.answer || "—";
-          renderSources(data.sources || []);
+          lastAnswerRaw = data.answer || "";
+          answerEl.innerHTML = renderAnswer(lastAnswerRaw);
 
-          statsEl.textContent =
-            `llm=${data.llm_used || "?"} • k=${data.retrieved_docs || "?"} • latency=${data.latency_sec || ((t1 - t0)/1000).toFixed(2)}s`;
-        } catch (e) {
-          answerEl.textContent = "Eroare: " + (e?.message || String(e));
-          statsEl.textContent = "—";
+          const sources = dedupeSources(data.sources || []);
+          carousel.innerHTML = sources.map((s, i) => buildCard(s, i)).join("");
+          wireCardButtons();
+
+          metaModel.textContent = data.llm_used || "—";
+          metaK.textContent = "8"; // dacă vrei exact, returnează-l din backend
+          metaLatency.textContent = `${data.latency_sec ?? elapsed}s`;
+          metaDocs.textContent = String(data.retrieved_docs ?? "—");
+          metaUniq.textContent = String(sources.length);
+
+          answerHint.textContent = `latency ~${data.latency_sec ?? elapsed}s`;
+          srcHint.textContent = `${sources.length} cards`;
+
+          setStatus("ok", "done");
+        } catch (err) {
+          if (String(err).includes("AbortError")) {
+            setStatus("err", "cancelled");
+            answerEl.innerHTML = `<span class="muted">Cererea a fost anulată.</span>`;
+          } else {
+            setStatus("err", "error");
+            answerEl.innerHTML = `<span class="muted">Eroare: ${escapeHtml(err.message || String(err))}</span>`;
+          }
         } finally {
-          setLoading(false);
+          btn.disabled = false;
+          cancelBtn.style.display = "none";
         }
       }
 
-      askBtn.addEventListener("click", ask);
-      qEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ask();
+      btn.addEventListener("click", askRag);
+
+      cancelBtn.addEventListener("click", () => {
+        if (abortController) abortController.abort();
       });
 
-      document.querySelectorAll(".chip").forEach((chip) => {
-        chip.addEventListener("click", () => {
-          qEl.value = chip.dataset.q || "";
-          ask();
+      copyAnswerBtn.addEventListener("click", async () => {
+        if (!lastAnswerRaw) return;
+        await copyToClipboard(lastAnswerRaw);
+        const old = copyAnswerBtn.textContent;
+        copyAnswerBtn.textContent = "Copied ✅";
+        setTimeout(() => (copyAnswerBtn.textContent = old), 900);
+      });
+
+      q.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          askRag();
+        }
+      });
+
+      document.querySelectorAll(".chip").forEach((c) => {
+        c.addEventListener("click", () => {
+          q.value = c.getAttribute("data-q") || "";
+          askRag();
         });
       });
+
+      setStatus("ok", "idle");
     </script>
   </body>
 </html>

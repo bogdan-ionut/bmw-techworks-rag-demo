@@ -9,7 +9,7 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from dotenv import load_dotenv
 
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -20,7 +20,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 CHROMA_DIR = BASE_DIR / "chroma_db"
 
-# Fișierul tău local JSONL (ai deja 478 de rânduri acolo)
+# Fișierul tău local JSONL (ai deja ~478 rânduri)
 LOCAL_JSONL = DATA_DIR / "bmw_employees.jsonl"
 
 # Opțional: dacă vrei să folosești S3
@@ -93,24 +93,45 @@ def record_to_text(rec: Dict[str, Any]) -> str:
         f"{rec.get('school_date_range_2', 'N/A')}",
         "",
         f"LinkedIn: {rec.get('profile_url', 'N/A')}",
+        f"VMID: {rec.get('vmid', 'N/A')}",
     ]
     return "\n".join(parts)
 
 
 def build_documents(records: List[Dict[str, Any]]) -> List[Document]:
-    """Construiește Document-e LangChain cu metadata utilă pentru /sources."""
+    """
+    Construiește Document-e LangChain cu metadata RICH pentru UI (/sources).
+    IMPORTANT: metadata-ul se propagă în chunks, apoi îl poți afișa în UI.
+    """
     docs: List[Document] = []
     for rec in records:
         content = record_to_text(rec)
+
+        # Cheie stabilă pt dedup: vmid -> profile_url -> full_name
+        stable_id = rec.get("vmid") or rec.get("profile_url") or rec.get("full_name") or "unknown"
+
         meta = {
+            "id": stable_id,
+            "vmid": rec.get("vmid"),
             "full_name": rec.get("full_name"),
+            "profile_url": rec.get("profile_url"),
+            "profile_image_url": rec.get("profile_image_url"),
+            "headline": rec.get("headline"),
             "location": rec.get("location"),
             "job_title": rec.get("job_title"),
+            "job_date_range": rec.get("job_date_range"),
             "job_title_2": rec.get("job_title_2"),
-            "profile_url": rec.get("profile_url"),
-            "vmid": rec.get("vmid"),
+            "job_date_range_2": rec.get("job_date_range_2"),
+            "school": rec.get("school"),
+            "school_degree": rec.get("school_degree"),
+            "school_date_range": rec.get("school_date_range"),
+            "school_2": rec.get("school_2"),
+            "school_degree_2": rec.get("school_degree_2"),
+            "school_date_range_2": rec.get("school_date_range_2"),
         }
+
         docs.append(Document(page_content=content, metadata=meta))
+
     print(f"[INFO] Built {len(docs)} formatted Documents")
     return docs
 
@@ -146,7 +167,13 @@ def main() -> None:
         embedding=embeddings,
         persist_directory=str(CHROMA_DIR),
     )
-    vectordb.persist()
+
+    # Unele versiuni încă au persist(); altele persistă automat — nu stricăm nimic:
+    try:
+        vectordb.persist()
+    except Exception:
+        pass
+
     print(f"✅ Chroma DB built & saved in {CHROMA_DIR}")
 
 
