@@ -3,6 +3,7 @@
 import os
 import json
 import time
+from pathlib import Path
 from typing import Any, Dict, List
 
 import boto3
@@ -10,6 +11,8 @@ from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 from dotenv import load_dotenv
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # LangChain imports (v1+ style)
@@ -21,7 +24,22 @@ from langchain_core.documents import Document
 
 load_dotenv()
 
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+
 app = FastAPI(title="BMW TechWorks RAG Demo")
+
+# Serve static UI
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def homepage():
+    index_file = STATIC_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(str(index_file))
+    return {"message": "UI not found. Create app/static/index.html"}
 
 
 # ---------- Helpers: load secrets (AWS Secrets Manager + .env fallback) ----------
@@ -34,7 +52,6 @@ def load_secrets() -> Dict[str, str]:
     secret_name = os.getenv("AWS_SECRET_NAME")
     region = os.getenv("AWS_REGION", "eu-north-1")
 
-    # Dacă nu e setat numele secretului, mergem direct pe .env
     if not secret_name:
         print("[INFO] AWS_SECRET_NAME not set – using only .env for API keys.")
         return {
@@ -54,7 +71,6 @@ def load_secrets() -> Dict[str, str]:
         print(f"[WARN] Cannot read AWS secret ({e}). Falling back to .env")
         secrets = {}
 
-    # Fallback la .env dacă lipsesc anumite chei
     return {
         "OPENAI_API_KEY": secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY", ""),
         "ANTHROPIC_API_KEY": secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY", ""),
@@ -64,16 +80,18 @@ def load_secrets() -> Dict[str, str]:
 
 secrets = load_secrets()
 
+if not secrets.get("OPENAI_API_KEY"):
+    # embeddings sunt OpenAI in codul tău — deci ai nevoie de OPENAI_API_KEY măcar pentru retrieval
+    print("[WARN] OPENAI_API_KEY missing. Retrieval may fail (embeddings).")
+
 
 # ---------- Vector store & retriever ----------
 
-# Același embeddings ca în main.py (text-embedding-3-large)
 embeddings = OpenAIEmbeddings(
     api_key=secrets.get("OPENAI_API_KEY", ""),
     model="text-embedding-3-large",
 )
 
-# Încarcă Chroma DB creat de main.py
 VECTORDIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chroma_db")
 
 vectordb = Chroma(
@@ -146,7 +164,6 @@ Now answer clearly in Romanian and, if it helps clarity, you can include bullet 
 # ---------- RAG core logic ----------
 
 def docs_to_rich_text(docs: List[Document]) -> str:
-    """Concatenează documentele cu separatori, pentru context LLM."""
     return "\n\n-----\n\n".join(d.page_content for d in docs)
 
 
@@ -154,7 +171,6 @@ def run_rag(query: str) -> Dict[str, Any]:
     start = time.time()
     print(f"\n[RAG] New query: {query!r}")
 
-    # 1) Retrieve
     t0 = time.time()
     docs = retriever.invoke(query)
     t1 = time.time()
@@ -162,23 +178,19 @@ def run_rag(query: str) -> Dict[str, Any]:
 
     context_text = docs_to_rich_text(docs)
 
-    # 2) Build full prompt
     full_prompt = f"{SYSTEM_PROMPT}\n\n" + USER_PROMPT.format(
         question=query,
         context=context_text,
     )
 
-    # 3) Call LLM
     print("[RAG] Calling LLM...")
     t2 = time.time()
     resp = llm.invoke(full_prompt)
     t3 = time.time()
     print(f"[RAG] LLM answered in {t3 - t2:.2f}s (total {t3 - start:.2f}s)")
 
-    # Chat models return a message object with `.content`
     answer = getattr(resp, "content", str(resp))
 
-    # 4) Build sources metadata (to le poți afișa frumos în UI / JSON)
     sources = []
     for d in docs:
         md = d.metadata or {}
@@ -211,10 +223,4 @@ class Query(BaseModel):
 
 @app.post("/query")
 def rag_query(q: Query) -> Dict[str, Any]:
-    """
-    Body:
-    {
-        "query": "câți angajați cu numele de Iulia avem? și de unde sunt?"
-    }
-    """
     return run_rag(q.query)

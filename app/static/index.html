@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ro">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BMW TechWorks • RAG Demo</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      :root {
+        --bg: #0b1021;
+        --panel: #0f172a;
+        --card: #111827;
+        --accent: #38bdf8;
+        --muted: #9ca3af;
+        --border: rgba(255, 255, 255, 0.08);
+        --glow: rgba(56, 189, 248, 0.25);
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.18), transparent 35%),
+          radial-gradient(circle at 80% 0%, rgba(94, 234, 212, 0.18), transparent 40%),
+          var(--bg);
+        color: #e5e7eb;
+        min-height: 100vh;
+      }
+
+      header { padding: 40px 5vw 10px; }
+      h1 {
+        margin: 0;
+        font-size: 32px;
+        letter-spacing: -0.5px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      h1 .tag {
+        background: linear-gradient(135deg, #38bdf8, #14b8a6);
+        color: #0b1021;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 700;
+        box-shadow: 0 8px 24px var(--glow);
+      }
+      p.subtitle { margin: 8px 0 0; color: var(--muted); }
+
+      .panel {
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.08), rgba(17, 24, 39, 0.9));
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 16px;
+        margin: 24px 5vw 8px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+        backdrop-filter: blur(8px);
+      }
+
+      .row { display: flex; flex-wrap: wrap; gap: 12px; }
+      textarea {
+        flex: 1;
+        min-width: 260px;
+        min-height: 92px;
+        padding: 14px 16px;
+        background: rgba(17, 24, 39, 0.8);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        color: #e5e7eb;
+        font-size: 15px;
+        resize: vertical;
+        outline: none;
+      }
+      textarea:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+      }
+
+      button {
+        background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+        color: #0b1021;
+        border: none;
+        padding: 14px 18px;
+        border-radius: 12px;
+        font-weight: 800;
+        cursor: pointer;
+        box-shadow: 0 12px 30px var(--glow);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 48px;
+        align-self: flex-start;
+      }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+      .pills { margin-top: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(56, 189, 248, 0.12);
+        color: #e0f2fe;
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 13px;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        gap: 18px;
+        padding: 12px 5vw 60px;
+      }
+
+      .card {
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(17, 24, 39, 0.9));
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 16px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .card::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.08), transparent 45%);
+        pointer-events: none;
+      }
+
+      .title {
+        margin: 0 0 10px;
+        font-size: 14px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .answer {
+        white-space: pre-wrap;
+        line-height: 1.55;
+        font-size: 15px;
+        color: #e5e7eb;
+      }
+
+      .sources { display: grid; gap: 12px; }
+      .source {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .source .name { font-weight: 800; margin: 0 0 6px; }
+      .meta { color: #cbd5e1; font-size: 13px; display: grid; gap: 4px; }
+      a { color: #38bdf8; text-decoration: none; font-weight: 700; }
+
+      .examples { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+      .chip {
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.04);
+        color: #e5e7eb;
+        border-radius: 999px;
+        padding: 8px 10px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      @media (max-width: 980px) {
+        .layout { grid-template-columns: 1fr; }
+        header { padding: 24px 6vw 8px; }
+        .panel { margin: 18px 6vw 8px; }
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <h1>BMW TechWorks <span class="tag">RAG Demo</span></h1>
+      <p class="subtitle">
+        Întreabă în limbaj natural. Backend-ul face retrieval din Chroma + LLM (OpenAI/Anthropic/Gemini) și returnează răspuns + surse.
+      </p>
+    </header>
+
+    <section class="panel">
+      <div class="row">
+        <textarea id="q" placeholder="Ex: Cine sunt Infrastructure Engineers în Cluj? Dă-mi nume + LinkedIn + educație."></textarea>
+        <button id="ask" type="button">🧠 Întreabă RAG</button>
+      </div>
+
+      <div class="examples">
+        <div class="chip" data-q="Cine sunt Infrastructure Engineers în Cluj? Dă-mi nume + LinkedIn + educație.">Infrastructure Engineers</div>
+        <div class="chip" data-q="Avem oameni pe zona Talent Acquisition / HR? Listează-i cu rol și locație.">HR / Talent</div>
+        <div class="chip" data-q="Caută persoane cu 'People' în headline și spune-mi cine sunt.">People în headline</div>
+        <div class="chip" data-q="Câți angajați au 'Student' în headline și în ce rol sunt acum?">Students</div>
+      </div>
+
+      <div class="pills">
+        <span class="pill" id="status">Status: idle</span>
+        <span class="pill" id="stats">—</span>
+      </div>
+    </section>
+
+    <section class="layout">
+      <div class="card">
+        <p class="title">Răspuns</p>
+        <div class="answer" id="answer">—</div>
+      </div>
+
+      <div class="card">
+        <p class="title">Surse (retrieved)</p>
+        <div class="sources" id="sources"></div>
+      </div>
+    </section>
+
+    <script>
+      const qEl = document.getElementById("q");
+      const askBtn = document.getElementById("ask");
+      const statusEl = document.getElementById("status");
+      const statsEl = document.getElementById("stats");
+      const answerEl = document.getElementById("answer");
+      const sourcesEl = document.getElementById("sources");
+
+      function setLoading(isLoading) {
+        askBtn.disabled = isLoading;
+        statusEl.textContent = isLoading ? "Status: thinking..." : "Status: idle";
+      }
+
+      function renderSources(sources) {
+        sourcesEl.innerHTML = "";
+        if (!sources || !sources.length) {
+          sourcesEl.innerHTML = "<div style='color:#9ca3af'>—</div>";
+          return;
+        }
+
+        for (const s of sources) {
+          const div = document.createElement("div");
+          div.className = "source";
+
+          const name = document.createElement("p");
+          name.className = "name";
+          name.textContent = s.full_name || "Unknown";
+          div.appendChild(name);
+
+          const meta = document.createElement("div");
+          meta.className = "meta";
+
+          const line1 = [];
+          if (s.job_title) line1.push(s.job_title);
+          if (s.job_title_2) line1.push(" / " + s.job_title_2);
+          if (line1.length) {
+            const p = document.createElement("div");
+            p.textContent = line1.join("");
+            meta.appendChild(p);
+          }
+
+          if (s.location) {
+            const p = document.createElement("div");
+            p.textContent = "📍 " + s.location;
+            meta.appendChild(p);
+          }
+
+          if (s.headline) {
+            const p = document.createElement("div");
+            p.textContent = s.headline;
+            meta.appendChild(p);
+          }
+
+          if (s.profile_url) {
+            const a = document.createElement("a");
+            a.href = s.profile_url;
+            a.target = "_blank";
+            a.rel = "noopener noreferrer";
+            a.textContent = "LinkedIn";
+            meta.appendChild(a);
+          }
+
+          div.appendChild(meta);
+          sourcesEl.appendChild(div);
+        }
+      }
+
+      async function ask() {
+        const query = qEl.value.trim();
+        if (!query) return;
+
+        setLoading(true);
+        answerEl.textContent = "Se generează răspunsul...";
+        renderSources([]);
+
+        const t0 = performance.now();
+        try {
+          const res = await fetch("/query", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query })
+          });
+
+          if (!res.ok) {
+            const txt = await res.text();
+            throw new Error(`HTTP ${res.status}: ${txt}`);
+          }
+
+          const data = await res.json();
+          const t1 = performance.now();
+
+          answerEl.textContent = data.answer || "—";
+          renderSources(data.sources || []);
+
+          statsEl.textContent =
+            `llm=${data.llm_used || "?"} • k=${data.retrieved_docs || "?"} • latency=${data.latency_sec || ((t1 - t0)/1000).toFixed(2)}s`;
+        } catch (e) {
+          answerEl.textContent = "Eroare: " + (e?.message || String(e));
+          statsEl.textContent = "—";
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      askBtn.addEventListener("click", ask);
+      qEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ask();
+      });
+
+      document.querySelectorAll(".chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          qEl.value = chip.dataset.q || "";
+          ask();
+        });
+      });
+    </script>
+  </body>
+</html>
