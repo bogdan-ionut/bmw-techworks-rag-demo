@@ -5,6 +5,7 @@ import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
@@ -182,16 +183,29 @@ def _normalize_linkedin(url: Optional[str]) -> str:
         return ""
 
     clean = str(url).strip()
-    clean = clean.rstrip("/")
 
-    # remove tracking/query params that often create duplicates
-    if "?" in clean:
-        clean = clean.split("?")[0]
+    # drop query params / anchors to avoid duplicate keys
+    clean = clean.split("?")[0].split("#")[0].rstrip("/")
 
-    # normalize host casing and common prefixes
-    clean = clean.replace("www.linkedin.com", "linkedin.com")
-    clean = clean.replace("http://", "https://")
-    return clean.lower()
+    parsed = urlparse(clean)
+    host = (parsed.netloc or "").lower()
+
+    # collapse regional or mobile subdomains to the canonical linkedin.com
+    if host.endswith("linkedin.com"):
+        host = "linkedin.com"
+
+    # ensure we always key by the vanity slug under /in/
+    path = parsed.path or ""
+    if path.startswith("/in/"):
+        slug = path[len("/in/") :]
+    else:
+        slug = path.lstrip("/")
+
+    slug = slug.rstrip("/").lower()
+    if not slug:
+        return ""
+
+    return f"https://{host}/in/{slug}"
 
 
 def _canonical_vmid(vmid: Optional[str]) -> str:
