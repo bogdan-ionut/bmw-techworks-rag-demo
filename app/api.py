@@ -194,8 +194,17 @@ def _normalize_linkedin(url: Optional[str]) -> str:
     return clean.lower()
 
 
+def _canonical_vmid(vmid: Optional[str]) -> str:
+    if not vmid:
+        return ""
+
+    raw = str(vmid).strip().lower()
+    # remove accidental spaces or stray separators that might sneak in
+    return "".join(ch for ch in raw if ch.isalnum())
+
+
 def _source_key(md: Dict[str, Any]) -> str:
-    vmid = str(md.get("vmid") or "").strip().lower()
+    vmid = _canonical_vmid(md.get("vmid"))
     profile = _normalize_linkedin(md.get("profile_url"))
     full_name = str(md.get("full_name") or "").strip().lower()
     fallback_id = str(md.get("id") or "").strip().lower()

@@ -620,8 +620,16 @@
         return clean.replace(/\/$/, "").toLowerCase();
       }
 
+      function canonicalVmid(vmid) {
+        if (!vmid) return "";
+        return String(vmid)
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "");
+      }
+
       function sourceKey(s) {
-        const vmid = (s.vmid || "").trim().toLowerCase();
+        const vmid = canonicalVmid(s.vmid);
         const profile = normalizeLinkedIn(s.profile_url);
         const name = (s.full_name || "").trim().toLowerCase();
         const sourceId = (s.source_id || "").trim().toLowerCase();
