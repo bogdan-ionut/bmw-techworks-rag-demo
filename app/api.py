@@ -4,23 +4,23 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Query as FastQuery
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-# LangChain imports (v1+ style)
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.documents import Document
+from langchain_core.messages import SystemMessage, HumanMessage
 
 load_dotenv()
 
@@ -54,10 +54,6 @@ def health():
 # Secrets: AWS Secrets Manager + .env fallback
 # -----------------------------
 def load_secrets() -> Dict[str, str]:
-    """
-    1) Încearcă să citească API keys din AWS Secrets Manager (dacă ai credențiale)
-    2) Dacă nu are credențiale / secretul nu există, cade frumos pe .env
-    """
     secret_name = os.getenv("AWS_SECRET_NAME")
     region = os.getenv("AWS_REGION", "eu-north-1")
 
@@ -89,15 +85,44 @@ def load_secrets() -> Dict[str, str]:
 
 secrets = load_secrets()
 
+# -----------------------------
+# Config
+# -----------------------------
+RAG_K_DEFAULT = int(os.getenv("RAG_K", "8"))                 # used for LLM analysis
+SEARCH_K_DEFAULT = int(os.getenv("SEARCH_K_DEFAULT", "24"))  # used for cards
+CONTEXT_MAX_PEOPLE = int(os.getenv("CONTEXT_MAX_PEOPLE", "8"))
+SKIP_LLM_FOR_SHORT = os.getenv("SKIP_LLM_FOR_SHORT", "1") == "1"
+
+TEMPERATURE = float(os.getenv("TEMPERATURE", "0.1"))
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "220"))
+
+# Cache (nice for demo)
+CACHE_TTL_SEC = int(os.getenv("CACHE_TTL_SEC", "600"))
+_CACHE: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+
+
+def _cache_get(key: Tuple[Any, ...]) -> Optional[Dict[str, Any]]:
+    entry = _CACHE.get(key)
+    if not entry:
+        return None
+    if (time.time() - entry["t"]) > CACHE_TTL_SEC:
+        _CACHE.pop(key, None)
+        return None
+    return entry["v"]
+
+
+def _cache_set(key: Tuple[Any, ...], value: Dict[str, Any]) -> None:
+    _CACHE[key] = {"t": time.time(), "v": value}
+
 
 # -----------------------------
-# Vector store & retriever
+# Vector store
 # -----------------------------
-RAG_K = int(os.getenv("RAG_K", "8"))
+EMBED_MODEL = os.getenv("EMBED_MODEL", "text-embedding-3-large")
 
 embeddings = OpenAIEmbeddings(
     api_key=secrets.get("OPENAI_API_KEY", ""),
-    model="text-embedding-3-large",
+    model=EMBED_MODEL,
 )
 
 VECTORDIR = PROJECT_DIR / "chroma_db"
@@ -107,9 +132,6 @@ vectordb = Chroma(
     persist_directory=str(VECTORDIR),
 )
 
-retriever = vectordb.as_retriever(search_kwargs={"k": RAG_K})
-
-
 # -----------------------------
 # LLM provider switch
 # -----------------------------
@@ -118,102 +140,74 @@ provider = os.getenv("LLM_PROVIDER", "OPENAI").upper()
 if provider == "OPENAI":
     llm = ChatOpenAI(
         api_key=secrets.get("OPENAI_API_KEY", ""),
-        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-        temperature=float(os.getenv("TEMPERATURE", "0.1")),
+        model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
+        temperature=TEMPERATURE,
+        max_tokens=MAX_TOKENS,
     )
 elif provider == "ANTHROPIC":
     llm = ChatAnthropic(
         api_key=secrets.get("ANTHROPIC_API_KEY", ""),
         model=os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
-        temperature=float(os.getenv("TEMPERATURE", "0.1")),
+        temperature=TEMPERATURE,
     )
 elif provider == "GEMINI":
     llm = ChatGoogleGenerativeAI(
         api_key=secrets.get("GOOGLE_API_KEY", ""),
         model=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
-        temperature=float(os.getenv("TEMPERATURE", "0.1")),
+        temperature=TEMPERATURE,
     )
 else:
     raise ValueError(f"Invalid LLM_PROVIDER: {provider}")
 
-
 # -----------------------------
-# Prompt template
+# Prompt (short + strict)
 # -----------------------------
 SYSTEM_PROMPT = """You are an AI assistant that answers questions about BMW TechWorks Romania employees.
 
-You receive a user question and a set of employee records in the following text format:
-
-Employee: <full_name>
-Role: <job_title> (<job_date_range>)
-Second Role: <job_title_2> (<job_date_range_2>)
-Headline: <headline>
-Location: <location>
-Education 1: <school> – <school_degree> (<school_date_range>)
-Education 2: <school_2> – <school_degree_2> (<school_date_range_2>)
-LinkedIn: <profile_url>
-VMID: <vmid>
-
 Rules:
-- Use ONLY the given context to answer.
-- If some fields are missing (empty), just omit them.
-- If you don't know the answer from the context, say you don't know.
-- When listing employees, show as many useful fields as possible (roles, dates, location, education, LinkedIn).
-- Keep answers concise but information-dense.
+- Use ONLY the provided context records.
+- Do NOT output long lists of employees (the UI shows employee cards).
+- Keep the answer concise: <= 120 words unless the user explicitly asks for details.
+- If you don't know from context, say you don't know.
 """
 
 USER_PROMPT = """Question: {question}
 
-Context:
+Context records:
 {context}
 
-Now answer clearly in Romanian and, if it helps clarity, you can include bullet lists.
+Answer in Romanian, clear and concise. Use bullet points only if helpful.
 """
 
-
 # -----------------------------
-# RAG core logic
+# Helpers: normalization + dedupe
 # -----------------------------
-def docs_to_rich_text(docs: List[Document]) -> str:
-    return "\n\n-----\n\n".join(d.page_content for d in docs)
-
-
 def _normalize_linkedin(url: Optional[str]) -> str:
     if not url:
         return ""
-
-    clean = str(url).strip()
-
-    # drop query params / anchors to avoid duplicate keys
-    clean = clean.split("?")[0].split("#")[0].rstrip("/")
-
-    parsed = urlparse(clean)
-    host = (parsed.netloc or "").lower()
-
-    # collapse regional or mobile subdomains to the canonical linkedin.com
-    if host.endswith("linkedin.com"):
-        host = "linkedin.com"
-
-    # ensure we always key by the vanity slug under /in/
-    path = parsed.path or ""
-    if path.startswith("/in/"):
-        slug = path[len("/in/") :]
-    else:
-        slug = path.lstrip("/")
-
-    slug = slug.rstrip("/").lower()
-    if not slug:
-        return ""
-
-    return f"https://{host}/in/{slug}"
+    clean = str(url).strip().split("?")[0].split("#")[0].rstrip("/")
+    try:
+        parsed = urlparse(clean)
+        host = (parsed.netloc or "").lower()
+        if host.endswith("linkedin.com"):
+            host = "linkedin.com"
+        path = parsed.path or ""
+        if path.startswith("/in/"):
+            slug = path[len("/in/") :]
+        else:
+            slug = path.lstrip("/")
+        slug = slug.rstrip("/").lower()
+        if not slug:
+            return ""
+        return f"https://{host}/in/{slug}"
+    except Exception:
+        return clean.lower()
 
 
 def _canonical_vmid(vmid: Optional[str]) -> str:
     if not vmid:
         return ""
-
     raw = str(vmid).strip().lower()
-    # remove accidental spaces or stray separators that might sneak in
     return "".join(ch for ch in raw if ch.isalnum())
 
 
@@ -222,52 +216,7 @@ def _source_key(md: Dict[str, Any]) -> str:
     profile = _normalize_linkedin(md.get("profile_url"))
     full_name = str(md.get("full_name") or "").strip().lower()
     fallback_id = str(md.get("id") or "").strip().lower()
-
     return vmid or profile or full_name or fallback_id
-
-
-def _normalize_metadata_for_search(rec: Dict[str, Any]) -> str:
-    """Concatenate searchable metadata fields in lowercase for keyword checks."""
-
-    fields = [
-        rec.get("headline", ""),
-        rec.get("job_title", ""),
-        rec.get("job_title_2", ""),
-        rec.get("location", ""),
-        rec.get("school", ""),
-    ]
-
-    return " \n ".join(str(f or "") for f in fields).lower()
-
-
-def _hr_related(rec: Dict[str, Any]) -> bool:
-    """Detect if a record is likely related to HR/People/Talent topics."""
-
-    text = _normalize_metadata_for_search(rec)
-
-    hr_keywords = [
-        "hr",
-        "human resources",
-        "resurse umane",
-        "people partner",
-        "people lead",
-        "talent",
-        "recruit",
-        "recrut",
-        "people specialist",
-        "talent acquisition",
-        "talent partner",
-    ]
-
-    return any(kw in text for kw in hr_keywords)
-
-
-def _should_filter_for_hr(query: str) -> bool:
-    """Check if the user explicitly asked for HR profiles."""
-
-    q = query.lower()
-    trigger_keywords = ["hr", "human resources", "resurse umane", "talent", "recrut"]
-    return any(k in q for k in trigger_keywords)
 
 
 def _completeness_score(rec: Dict[str, Any]) -> int:
@@ -277,70 +226,31 @@ def _completeness_score(rec: Dict[str, Any]) -> int:
         "profile_url": 2,
         "headline": 2,
         "job_title": 2,
+        "job_date_range": 2,
         "location": 2,
         "job_title_2": 1,
+        "job_date_range_2": 1,
         "school": 1,
         "school_2": 1,
     }.items():
         if rec.get(k):
             score += weight
-    # bonus for any other filled field
     score += sum(1 for v in rec.values() if v not in (None, "", []))
     return score
 
 
-def _merge_missing(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
-    for k, v in src.items():
-        if dst.get(k) in (None, "", []):
-            dst[k] = v
-    return dst
-
-
 def _merge_prefer_richer(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
-    """Merge duplicates while preferring the record with more filled fields."""
-
-    left_score = _completeness_score(existing)
-    right_score = _completeness_score(incoming)
-
-    if right_score > left_score:
-        base, secondary = incoming.copy(), existing
-    else:
-        base, secondary = existing.copy(), incoming
-
-    return _merge_missing(base, secondary)
+    left = _completeness_score(existing)
+    right = _completeness_score(incoming)
+    base, secondary = (incoming.copy(), existing) if right > left else (existing.copy(), incoming)
+    for k, v in secondary.items():
+        if base.get(k) in (None, "", []):
+            base[k] = v
+    return base
 
 
-def run_rag(query: str) -> Dict[str, Any]:
-    start = time.time()
-    print(f"\n[RAG] New query: {query!r}")
-
-    # 1) Retrieve
-    t0 = time.time()
-    docs = retriever.invoke(query)
-    t1 = time.time()
-    print(f"[RAG] Retrieved {len(docs)} docs in {t1 - t0:.2f}s")
-
-    context_text = docs_to_rich_text(docs)
-
-    # 2) Build full prompt
-    full_prompt = f"{SYSTEM_PROMPT}\n\n" + USER_PROMPT.format(
-        question=query,
-        context=context_text,
-    )
-
-    # 3) Call LLM
-    print("[RAG] Calling LLM...")
-    t2 = time.time()
-    resp = llm.invoke(full_prompt)
-    t3 = time.time()
-    total = t3 - start
-    print(f"[RAG] LLM answered in {t3 - t2:.2f}s (total {total:.2f}s)")
-
-    answer = getattr(resp, "content", str(resp))
-
-    # 4) Build + DEDUP sources (important: multiple chunks can map to same person)
+def _docs_to_sources(docs: List[Document]) -> List[Dict[str, Any]]:
     unique: Dict[str, Dict[str, Any]] = {}
-
     for d in docs:
         md = d.metadata or {}
 
@@ -367,47 +277,166 @@ def run_rag(query: str) -> Dict[str, Any]:
         key = _source_key(md)
         if not key:
             continue
-
         if key not in unique:
             unique[key] = s
         else:
             unique[key] = _merge_prefer_richer(unique[key], s)
 
-    sources = list(unique.values())
+    return list(unique.values())
 
-    # 5) Optional HR filtering when user explicitly asks for HR-related people
-    if _should_filter_for_hr(query):
-        hr_sources = [s for s in sources if _hr_related(s)]
-        if hr_sources:
-            print(f"[RAG] HR filter applied: {len(hr_sources)} of {len(sources)} sources kept")
-            sources = hr_sources
-        else:
-            print("[RAG] HR filter requested but no matching profiles found; returning all sources")
 
-    return {
+def _sources_to_compact_context(sources: List[Dict[str, Any]], limit: int) -> str:
+    """
+    IMPORTANT: context compact (metadata only) => prompt mult mai mic => LLM mult mai rapid.
+    """
+    lines: List[str] = []
+    for s in sources[: max(1, limit)]:
+        lines.append(f"Employee: {s.get('full_name') or 'N/A'}")
+        if s.get("headline"):
+            lines.append(f"Headline: {s['headline']}")
+        if s.get("job_title"):
+            role = s["job_title"]
+            period = s.get("job_date_range") or ""
+            lines.append(f"Current role: {role}" + (f" ({period})" if period else ""))
+        if s.get("job_title_2"):
+            role2 = s["job_title_2"]
+            period2 = s.get("job_date_range_2") or ""
+            lines.append(f"Previous role: {role2}" + (f" ({period2})" if period2 else ""))
+        if s.get("location"):
+            lines.append(f"Location: {s['location']}")
+        edu1 = " – ".join([x for x in [s.get("school"), s.get("school_degree"), s.get("school_date_range")] if x])
+        edu2 = " – ".join([x for x in [s.get("school_2"), s.get("school_degree_2"), s.get("school_date_range_2")] if x])
+        if edu1:
+            lines.append(f"Education 1: {edu1}")
+        if edu2:
+            lines.append(f"Education 2: {edu2}")
+        if s.get("profile_url"):
+            lines.append(f"LinkedIn: {s['profile_url']}")
+        if s.get("vmid"):
+            lines.append(f"VMID: {s['vmid']}")
+        lines.append("-----")
+    return "\n".join(lines).strip()
+
+
+def _looks_like_short_search(query: str) -> bool:
+    q = query.strip()
+    if len(q) <= 22 and "?" not in q:
+        return True
+    return False
+
+
+# -----------------------------
+# Core: SEARCH (fast cards)
+# -----------------------------
+def run_search(query: str, k: int) -> Dict[str, Any]:
+    start = time.time()
+
+    cache_key = ("search", query.strip().lower(), int(k), EMBED_MODEL)
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    t0 = time.time()
+    docs = vectordb.similarity_search(query, k=k)
+    t1 = time.time()
+
+    sources = _docs_to_sources(docs)
+
+    result = {
+        "sources": sources,
+        "retrieved_docs": len(docs),
+        "unique_sources": len(sources),
+        "latency_sec": round(time.time() - start, 2),
+        "retrieval_sec": round(t1 - t0, 2),
+        "k": k,
+    }
+    _cache_set(cache_key, result)
+    return result
+
+
+@app.get("/search")
+def search_endpoint(
+    q: str = FastQuery(..., min_length=1),
+    k: int = FastQuery(SEARCH_K_DEFAULT, ge=1, le=200),
+) -> Dict[str, Any]:
+    return run_search(q, k)
+
+
+# -----------------------------
+# Core: RAG (LLM analysis)
+# -----------------------------
+def run_rag(query: str, k: int, with_llm: bool) -> Dict[str, Any]:
+    start = time.time()
+
+    # 1) Retrieve (same as search, but allow different k)
+    t0 = time.time()
+    docs = vectordb.similarity_search(query, k=k)
+    t1 = time.time()
+
+    sources = _docs_to_sources(docs)
+
+    # 2) Optional: skip LLM for short "keyword search" queries
+    if with_llm is False or (SKIP_LLM_FOR_SHORT and _looks_like_short_search(query)):
+        answer = "Am găsit profile relevante. Vezi cardurile din dreapta."
+        return {
+            "answer": answer,
+            "sources": sources,
+            "llm_used": "SKIPPED",
+            "retrieved_docs": len(docs),
+            "unique_sources": len(sources),
+            "k": k,
+            "latency_sec": round(time.time() - start, 2),
+            "retrieval_sec": round(t1 - t0, 2),
+            "llm_sec": 0.0,
+        }
+
+    # Cache LLM answers (great for demos)
+    cache_key = ("rag", query.strip().lower(), int(k), provider, MAX_TOKENS, TEMPERATURE, CONTEXT_MAX_PEOPLE)
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    # 3) Build SMALL context for LLM (metadata only)
+    context_text = _sources_to_compact_context(sources, limit=min(CONTEXT_MAX_PEOPLE, len(sources)))
+
+    # 4) Call LLM
+    t2 = time.time()
+    resp = llm.invoke(
+        [
+            SystemMessage(content=SYSTEM_PROMPT),
+            HumanMessage(content=USER_PROMPT.format(question=query, context=context_text)),
+        ]
+    )
+    t3 = time.time()
+
+    answer = getattr(resp, "content", str(resp))
+
+    result = {
         "answer": answer,
         "sources": sources,
         "llm_used": provider,
         "retrieved_docs": len(docs),
-        "k": RAG_K,
         "unique_sources": len(sources),
-        "latency_sec": round(total, 2),
+        "k": k,
+        "latency_sec": round(t3 - start, 2),
+        "retrieval_sec": round(t1 - t0, 2),
+        "llm_sec": round(t3 - t2, 2),
     }
+    _cache_set(cache_key, result)
+    return result
 
 
 # -----------------------------
 # FastAPI schema & endpoint
 # -----------------------------
-class Query(BaseModel):
-    query: str
+class QueryBody(BaseModel):
+    query: str = Field(..., min_length=1)
+    with_llm: bool = True
+    k: Optional[int] = None
 
 
 @app.post("/query")
-def rag_query(q: Query) -> Dict[str, Any]:
-    """
-    Body:
-    {
-        "query": "câți angajați cu numele de Iulia avem? și de unde sunt?"
-    }
-    """
-    return run_rag(q.query)
+def rag_query(q: QueryBody) -> Dict[str, Any]:
+    k = int(q.k or RAG_K_DEFAULT)
+    k = max(1, min(200, k))
+    return run_rag(q.query, k=k, with_llm=q.with_llm)
