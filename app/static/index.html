@@ -183,10 +183,7 @@
       </div>
     </header>
 
-    <div class="hero">
-      <h1>Claritate și impact pentru prezentări</h1>
-      <p>Interfață curată pentru întrebări de tip interviu, cu răspunsuri concise și carduri pregătite pentru o prezentare profesionistă.</p>
-    </div>
+    <div class="hero"></div>
 
     <div class="search">
       <div class="input-wrap">
@@ -375,7 +372,7 @@
       function resolveAvatarSrc(s) {
         const img = (s.profile_image_url || "").trim();
         if (!img) return fallbackAvatar;
-        const linkedinImg = normalizeLinkedIn(img).includes("media.licdn.com");
+        const linkedinImg = img.includes("media.licdn.com");
         if (linkedinImg) {
           const proxied = `https://images.weserv.nl/?url=${encodeURIComponent(img.replace(/^https?:\/\//, ""))}&w=320&h=320&fit=cover`;
           return proxied;
