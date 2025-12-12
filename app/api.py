@@ -226,6 +226,50 @@ def _source_key(md: Dict[str, Any]) -> str:
     return vmid or profile or full_name or fallback_id
 
 
+def _normalize_metadata_for_search(rec: Dict[str, Any]) -> str:
+    """Concatenate searchable metadata fields in lowercase for keyword checks."""
+
+    fields = [
+        rec.get("headline", ""),
+        rec.get("job_title", ""),
+        rec.get("job_title_2", ""),
+        rec.get("location", ""),
+        rec.get("school", ""),
+    ]
+
+    return " \n ".join(str(f or "") for f in fields).lower()
+
+
+def _hr_related(rec: Dict[str, Any]) -> bool:
+    """Detect if a record is likely related to HR/People/Talent topics."""
+
+    text = _normalize_metadata_for_search(rec)
+
+    hr_keywords = [
+        "hr",
+        "human resources",
+        "resurse umane",
+        "people partner",
+        "people lead",
+        "talent",
+        "recruit",
+        "recrut",
+        "people specialist",
+        "talent acquisition",
+        "talent partner",
+    ]
+
+    return any(kw in text for kw in hr_keywords)
+
+
+def _should_filter_for_hr(query: str) -> bool:
+    """Check if the user explicitly asked for HR profiles."""
+
+    q = query.lower()
+    trigger_keywords = ["hr", "human resources", "resurse umane", "talent", "recrut"]
+    return any(k in q for k in trigger_keywords)
+
+
 def _completeness_score(rec: Dict[str, Any]) -> int:
     score = 0
     for k, weight in {
@@ -330,6 +374,15 @@ def run_rag(query: str) -> Dict[str, Any]:
             unique[key] = _merge_prefer_richer(unique[key], s)
 
     sources = list(unique.values())
+
+    # 5) Optional HR filtering when user explicitly asks for HR-related people
+    if _should_filter_for_hr(query):
+        hr_sources = [s for s in sources if _hr_related(s)]
+        if hr_sources:
+            print(f"[RAG] HR filter applied: {len(hr_sources)} of {len(sources)} sources kept")
+            sources = hr_sources
+        else:
+            print("[RAG] HR filter requested but no matching profiles found; returning all sources")
 
     return {
         "answer": answer,
