@@ -12,18 +12,19 @@
     />
     <style>
       :root {
-        --bg: #070a14;
+        --bg: #030712;
         --panel: rgba(255, 255, 255, 0.04);
-        --panel2: rgba(255, 255, 255, 0.06);
-        --border: rgba(255, 255, 255, 0.08);
-        --text: rgba(255, 255, 255, 0.92);
-        --muted: rgba(255, 255, 255, 0.62);
-        --muted2: rgba(255, 255, 255, 0.45);
-        --accent: #38bdf8;
+        --panel2: rgba(255, 255, 255, 0.08);
+        --border: rgba(255, 255, 255, 0.12);
+        --text: rgba(255, 255, 255, 0.94);
+        --muted: rgba(255, 255, 255, 0.68);
+        --muted2: rgba(255, 255, 255, 0.48);
+        --accent: #4ade80;
+        --accent2: #38bdf8;
         --good: #22c55e;
         --warn: #f59e0b;
         --bad: #ef4444;
-        --shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+        --shadow: 0 28px 60px rgba(0, 0, 0, 0.55);
         --radius: 18px;
       }
 
@@ -34,16 +35,16 @@
         font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif;
         color: var(--text);
         background:
-          radial-gradient(1200px 600px at 15% 10%, rgba(56,189,248,0.18), transparent 60%),
-          radial-gradient(900px 500px at 90% 0%, rgba(34,197,94,0.12), transparent 60%),
-          radial-gradient(1000px 700px at 70% 100%, rgba(99,102,241,0.12), transparent 60%),
+          radial-gradient(1200px 700px at 12% 10%, rgba(74,222,128,0.20), transparent 55%),
+          radial-gradient(1000px 680px at 82% 0%, rgba(56,189,248,0.18), transparent 55%),
+          radial-gradient(1400px 780px at 40% 100%, rgba(99,102,241,0.14), transparent 60%),
           var(--bg);
       }
 
       .container {
-        max-width: 1180px;
+        max-width: 1280px;
         margin: 0 auto;
-        padding: 28px 18px 60px;
+        padding: 28px 18px 70px;
       }
 
       .topbar {
@@ -51,7 +52,7 @@
         justify-content: space-between;
         align-items: flex-start;
         gap: 14px;
-        margin-bottom: 18px;
+        margin-bottom: 8px;
       }
 
       .title {
@@ -62,8 +63,8 @@
 
       .title h1 {
         margin: 0;
-        font-size: 24px;
-        letter-spacing: -0.4px;
+        font-size: 26px;
+        letter-spacing: -0.5px;
         display: inline-flex;
         align-items: center;
         gap: 10px;
@@ -71,20 +72,77 @@
 
       .badge {
         font-size: 12px;
-        font-weight: 700;
-        padding: 4px 10px;
+        font-weight: 800;
+        padding: 4px 12px;
         border-radius: 999px;
-        color: #05111a;
-        background: linear-gradient(135deg, #38bdf8, #22c55e);
-        box-shadow: 0 12px 30px rgba(56,189,248,0.18);
+        color: #04121a;
+        background: linear-gradient(135deg, #4ade80, #38bdf8);
+        box-shadow: 0 16px 36px rgba(56,189,248,0.18);
+        border: 1px solid rgba(255, 255, 255, 0.12);
       }
 
       .subtitle {
         margin: 0;
         color: var(--muted);
         font-size: 13px;
-        line-height: 1.4;
+        line-height: 1.5;
       }
+
+      .tagline {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.04);
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 10px;
+      }
+
+      .pipeline {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 12px 0 6px;
+      }
+
+      .step {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.05);
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .step strong {
+        color: var(--text);
+        letter-spacing: -0.1px;
+      }
+
+      .stat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 10px;
+        margin-top: 8px;
+      }
+
+      .stat {
+        padding: 10px 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(255,255,255,0.10);
+        background: rgba(255,255,255,0.03);
+        display: grid;
+        gap: 4px;
+      }
+
+      .stat .label { font-size: 11px; color: var(--muted2); letter-spacing: 0.08em; text-transform: uppercase; }
+      .stat .value { font-size: 16px; font-weight: 800; letter-spacing: -0.2px; }
 
       .meta-row {
         display: flex;
@@ -101,7 +159,7 @@
         padding: 7px 10px;
         border-radius: 999px;
         border: 1px solid var(--border);
-        background: rgba(255,255,255,0.03);
+        background: rgba(255,255,255,0.05);
         color: var(--muted);
         font-size: 12px;
         white-space: nowrap;
@@ -111,20 +169,21 @@
 
       .panel {
         border: 1px solid var(--border);
-        background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.02));
+        background: linear-gradient(160deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
         border-radius: var(--radius);
         box-shadow: var(--shadow);
         overflow: hidden;
+        backdrop-filter: blur(10px);
       }
 
       .ask {
-        padding: 14px;
+        padding: 16px;
       }
 
       .ask-grid {
         display: grid;
         grid-template-columns: 1fr auto;
-        gap: 12px;
+        gap: 14px;
         align-items: start;
       }
 
@@ -134,7 +193,7 @@
         resize: vertical;
         border-radius: 14px;
         border: 1px solid var(--border);
-        background: rgba(0,0,0,0.22);
+        background: rgba(0,0,0,0.26);
         color: var(--text);
         padding: 12px 12px;
         font-size: 14px;
@@ -151,11 +210,11 @@
         border: 0;
         cursor: pointer;
         border-radius: 14px;
-        padding: 12px 14px;
+        padding: 14px 16px;
         font-weight: 800;
         color: #04121a;
-        background: linear-gradient(135deg, #38bdf8, #0ea5e9);
-        box-shadow: 0 16px 32px rgba(56,189,248,0.16);
+        background: linear-gradient(135deg, #4ade80, #22c55e);
+        box-shadow: 0 16px 32px rgba(34,197,94,0.24);
         display: inline-flex;
         align-items: center;
         gap: 10px;
@@ -176,19 +235,21 @@
       }
 
       .chip {
-        border: 1px solid var(--border);
-        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
         color: var(--muted);
         padding: 7px 10px;
         border-radius: 999px;
         font-size: 12px;
         cursor: pointer;
         user-select: none;
+        transition: all 0.15s ease;
       }
 
       .chip:hover {
-        border-color: rgba(56,189,248,0.35);
+        border-color: rgba(74,222,128,0.55);
         color: var(--text);
+        box-shadow: 0 6px 18px rgba(74,222,128,0.25);
       }
 
       .content {
@@ -257,15 +318,15 @@
 
       .card {
         scroll-snap-align: start;
-        border: 1px solid var(--border);
+        border: 1px solid rgba(255,255,255,0.12);
         border-radius: 16px;
-        background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(0,0,0,0.18));
-        box-shadow: 0 14px 38px rgba(0,0,0,0.35);
+        background: linear-gradient(175deg, rgba(255,255,255,0.05), rgba(0,0,0,0.22));
+        box-shadow: 0 18px 42px rgba(0,0,0,0.42);
         padding: 12px;
         display: flex;
         flex-direction: column;
         gap: 10px;
-        min-height: 320px;
+        min-height: 340px;
       }
 
       .card-top {
@@ -280,8 +341,8 @@
         height: 62px;
         border-radius: 16px;
         object-fit: cover;
-        border: 1px solid var(--border);
-        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(74,222,128,0.28);
+        background: rgba(255,255,255,0.08);
       }
 
       .name {
@@ -328,7 +389,7 @@
 
       .mini {
         border: 1px solid var(--border);
-        background: rgba(255,255,255,0.03);
+        background: rgba(255,255,255,0.05);
         color: var(--text);
         font-weight: 800;
         font-size: 12px;
@@ -338,8 +399,8 @@
       }
 
       .mini.primary {
-        background: rgba(56,189,248,0.10);
-        border-color: rgba(56,189,248,0.25);
+        background: linear-gradient(135deg, rgba(74,222,128,0.18), rgba(56,189,248,0.18));
+        border-color: rgba(74,222,128,0.45);
       }
 
       .mini:hover { border-color: rgba(255,255,255,0.18); }
@@ -423,13 +484,22 @@
           </p>
         </div>
 
-        <div class="meta-row">
-          <div class="pill"><span>Model:</span> <strong id="meta-model">—</strong></div>
-          <div class="pill"><span>k:</span> <strong id="meta-k">—</strong></div>
-          <div class="pill"><span>Latency:</span> <strong id="meta-latency">—</strong></div>
-          <div class="pill"><span>Docs:</span> <strong id="meta-docs">—</strong></div>
-          <div class="pill"><span>Employees:</span> <strong id="meta-uniq">—</strong></div>
+        <div class="stat-grid" style="max-width: 520px;">
+          <div class="stat"><div class="label">Model</div><div class="value" id="meta-model">—</div></div>
+          <div class="stat"><div class="label">k (retrieval)</div><div class="value" id="meta-k">—</div></div>
+          <div class="stat"><div class="label">Latency</div><div class="value" id="meta-latency">—</div></div>
+          <div class="stat"><div class="label">Docs</div><div class="value" id="meta-docs">—</div></div>
+          <div class="stat"><div class="label">Employees</div><div class="value" id="meta-uniq">—</div></div>
         </div>
+      </div>
+
+      <div class="tagline">⚡ Demo ready pentru interviu: smart, explicabil și vizual — vezi imediat fluxul RAG și sursele reale.</div>
+
+      <div class="pipeline">
+        <div class="step">🔎 <strong>Retrieve</strong> → Chroma DB (vectori OpenAI)</div>
+        <div class="step">📚 <strong>Ground</strong> → chunk-uri îmbogățite cu metadate</div>
+        <div class="step">🧠 <strong>Answer</strong> → LLM + citate din surse unice</div>
+        <div class="step">🧭 <strong>Audit</strong> → vezi cardurile deduplicate & raw</div>
       </div>
 
       <div class="panel ask">
@@ -529,19 +599,70 @@
         return s;
       }
 
+      const fallbackAvatar = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+        <svg xmlns="http://www.w3.org/2000/svg" width="160" height="160">
+          <defs>
+            <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+              <stop stop-color="#4ade80" offset="0"/>
+              <stop stop-color="#38bdf8" offset="1"/>
+            </linearGradient>
+          </defs>
+          <rect width="160" height="160" rx="30" fill="url(#g)"/>
+          <text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Inter,Arial" font-size="32" fill="#04121a" font-weight="800">BMW</text>
+        </svg>
+      `)}`;
+
+      function normalizeLinkedIn(url) {
+        if (!url) return "";
+        let clean = String(url).trim();
+        clean = clean.replace("www.linkedin.com", "linkedin.com").replace("http://", "https://");
+        clean = clean.split("?")[0];
+        return clean.replace(/\/$/, "").toLowerCase();
+      }
+
+      function sourceKey(s) {
+        const vmid = (s.vmid || "").trim().toLowerCase();
+        const profile = normalizeLinkedIn(s.profile_url);
+        const name = (s.full_name || "").trim().toLowerCase();
+        const sourceId = (s.source_id || "").trim().toLowerCase();
+        return vmid || profile || name || sourceId || JSON.stringify(s);
+      }
+
+      function completenessScore(s) {
+        let score = 0;
+        const weighted = {
+          profile_image_url: 3,
+          profile_url: 2,
+          headline: 2,
+          job_title: 2,
+          location: 2,
+          job_title_2: 1,
+          school: 1,
+          school_2: 1,
+        };
+        for (const [k, weight] of Object.entries(weighted)) {
+          if (s[k]) score += weight;
+        }
+        score += Object.values(s).filter((v) => v !== null && v !== "" && v !== undefined).length;
+        return score;
+      }
+
+      function mergeSources(a, b) {
+        const pickBase = completenessScore(b) > completenessScore(a) ? [b, a] : [a, b];
+        const [base, secondary] = pickBase.map((x) => ({ ...x }));
+        for (const [k, v] of Object.entries(secondary)) {
+          if (base[k] === undefined || base[k] === null || base[k] === "") base[k] = v;
+        }
+        return base;
+      }
+
       function dedupeSources(sources) {
         const map = new Map();
-        for (const s of (sources || [])) {
-          const key = s.vmid || s.profile_url || s.full_name || s.source_id || JSON.stringify(s);
+        for (const s of sources || []) {
+          const key = sourceKey(s);
+          if (!key) continue;
           if (!map.has(key)) map.set(key, s);
-          else {
-            // merge missing fields
-            const existing = map.get(key);
-            for (const [k, v] of Object.entries(s)) {
-              if (existing[k] == null || existing[k] === "") existing[k] = v;
-            }
-            map.set(key, existing);
-          }
+          else map.set(key, mergeSources(map.get(key), s));
         }
         return Array.from(map.values());
       }
@@ -565,8 +686,19 @@
         return `<span class="tag">${icon ? icon + " " : ""}${escapeHtml(text)}</span>`;
       }
 
+      function resolveAvatarSrc(s) {
+        const img = (s.profile_image_url || "").trim();
+        if (!img) return fallbackAvatar;
+
+        const linkedinImg = normalizeLinkedIn(img).includes("media.licdn.com");
+        if (linkedinImg) {
+          const proxied = `https://images.weserv.nl/?url=${encodeURIComponent(img.replace(/^https?:\/\//, ""))}&w=320&h=320&fit=cover`;
+          return proxied;
+        }
+        return escapeHtml(img);
+      }
+
       function buildCard(s, idx) {
-        const img = s.profile_image_url ? escapeHtml(s.profile_image_url) : "";
         const name = s.full_name || "Nume necunoscut";
         const headline = s.headline || "";
         const location = s.location || "";
@@ -579,25 +711,14 @@
         const profileUrl = s.profile_url || "";
         const vmid = s.vmid || "";
 
-        const avatarSrc = img || `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
-          <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120">
-            <defs>
-              <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-                <stop stop-color="#38bdf8" offset="0"/>
-                <stop stop-color="#22c55e" offset="1"/>
-              </linearGradient>
-            </defs>
-            <rect width="120" height="120" rx="24" fill="url(#g)"/>
-            <text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="Inter,Arial" font-size="28" fill="#04121a" font-weight="800">BMW</text>
-          </svg>
-        `)}`;
+        const avatarSrc = resolveAvatarSrc(s);
 
         const raw = escapeHtml(JSON.stringify(s, null, 2));
 
         return `
           <div class="card">
             <div class="card-top">
-              <img class="avatar" src="${avatarSrc}" alt="photo" referrerpolicy="no-referrer" />
+              <img class="avatar" src="${avatarSrc}" alt="photo" referrerpolicy="no-referrer" loading="lazy" onerror="this.src='${fallbackAvatar}';this.onerror=null;" />
               <div>
                 <p class="name">#${idx + 1} • ${escapeHtml(name)}</p>
                 ${headline ? `<p class="headline">${escapeHtml(headline)}</p>` : `<p class="headline" style="opacity:.7">—</p>`}

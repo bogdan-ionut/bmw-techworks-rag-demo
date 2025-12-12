@@ -177,13 +177,49 @@ def docs_to_rich_text(docs: List[Document]) -> str:
     return "\n\n-----\n\n".join(d.page_content for d in docs)
 
 
+def _normalize_linkedin(url: Optional[str]) -> str:
+    if not url:
+        return ""
+
+    clean = str(url).strip()
+    clean = clean.rstrip("/")
+
+    # remove tracking/query params that often create duplicates
+    if "?" in clean:
+        clean = clean.split("?")[0]
+
+    # normalize host casing and common prefixes
+    clean = clean.replace("www.linkedin.com", "linkedin.com")
+    clean = clean.replace("http://", "https://")
+    return clean.lower()
+
+
 def _source_key(md: Dict[str, Any]) -> str:
-    return (
-        str(md.get("vmid") or "").strip()
-        or str(md.get("profile_url") or "").strip()
-        or str(md.get("full_name") or "").strip()
-        or str(md.get("id") or "").strip()
-    )
+    vmid = str(md.get("vmid") or "").strip().lower()
+    profile = _normalize_linkedin(md.get("profile_url"))
+    full_name = str(md.get("full_name") or "").strip().lower()
+    fallback_id = str(md.get("id") or "").strip().lower()
+
+    return vmid or profile or full_name or fallback_id
+
+
+def _completeness_score(rec: Dict[str, Any]) -> int:
+    score = 0
+    for k, weight in {
+        "profile_image_url": 3,
+        "profile_url": 2,
+        "headline": 2,
+        "job_title": 2,
+        "location": 2,
+        "job_title_2": 1,
+        "school": 1,
+        "school_2": 1,
+    }.items():
+        if rec.get(k):
+            score += weight
+    # bonus for any other filled field
+    score += sum(1 for v in rec.values() if v not in (None, "", []))
+    return score
 
 
 def _merge_missing(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
@@ -191,6 +227,20 @@ def _merge_missing(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
         if dst.get(k) in (None, "", []):
             dst[k] = v
     return dst
+
+
+def _merge_prefer_richer(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge duplicates while preferring the record with more filled fields."""
+
+    left_score = _completeness_score(existing)
+    right_score = _completeness_score(incoming)
+
+    if right_score > left_score:
+        base, secondary = incoming.copy(), existing
+    else:
+        base, secondary = existing.copy(), incoming
+
+    return _merge_missing(base, secondary)
 
 
 def run_rag(query: str) -> Dict[str, Any]:
@@ -254,7 +304,7 @@ def run_rag(query: str) -> Dict[str, Any]:
         if key not in unique:
             unique[key] = s
         else:
-            unique[key] = _merge_missing(unique[key], s)
+            unique[key] = _merge_prefer_richer(unique[key], s)
 
     sources = list(unique.values())
 
