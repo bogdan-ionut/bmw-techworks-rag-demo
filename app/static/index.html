@@ -630,9 +630,13 @@
 
         const r = data.retrieval_sec ?? "—";
         const l = data.llm_sec ?? "—";
+        const tokenUsage = data.token_usage || {};
+        const promptTokens = tokenUsage.prompt_tokens ?? "—";
+        const completionTokens = tokenUsage.completion_tokens ?? "—";
+        const totalTokens = tokenUsage.total_tokens ?? "—";
         metaModel.textContent = `Model: ${data.llm_used || "—"}`;
         metaDocs.textContent = `Docs: ${data.retrieved_docs ?? "—"} (rag)`;
-        metaTime.textContent = `Latency: ${data.latency_sec ?? elapsed}s (R:${r}s L:${l}s)`;
+        metaTime.textContent = `Latency: ${data.latency_sec ?? elapsed}s (R:${r}s L:${l}s) | Tokens P:${promptTokens} C:${completionTokens} T:${totalTokens}`;
 
         answerHint.textContent = `AI analysis: ${data.latency_sec ?? elapsed}s`;
         statusEl.textContent = "AI complete";
@@ -719,6 +723,11 @@
 
         const retrieval = retrieval_sec ?? "N/A";
         const llm = llm_sec ?? "N/A";
+        const tokenUsage = arch.token_usage || {};
+        const promptTokens = tokenUsage.prompt_tokens ?? "—";
+        const completionTokens = tokenUsage.completion_tokens ?? "—";
+        const totalTokens = tokenUsage.total_tokens ?? "—";
+        const promptChars = arch.prompt_characters ?? "—";
 
         archMetaEl.innerHTML = `
           <div class="meta-block">
@@ -737,9 +746,14 @@
             <div class="meta-hint">index live</div>
           </div>
           <div class="meta-block">
-            <div class="meta-label">Observability</div>
-            <div class="meta-value">Latency & cache</div>
-            <div class="meta-hint">tracking R/L timings</div>
+            <div class="meta-label">Prompt tokens</div>
+            <div class="meta-value">${promptTokens}</div>
+            <div class="meta-hint">Input chars: ${promptChars}</div>
+          </div>
+          <div class="meta-block">
+            <div class="meta-label">Completion tokens</div>
+            <div class="meta-value">${completionTokens}</div>
+            <div class="meta-hint">Total: ${totalTokens}</div>
           </div>
         `;
 
@@ -748,6 +762,7 @@
           <span class="footer-pill">Latency L: ${llm}s</span>
           <span class="footer-pill">LLM: ${escapeHtml(arch.llm_provider || "-")}</span>
           <span class="footer-pill">Vector DB: ${escapeHtml(arch.vectordb || "-")}</span>
+          <span class="footer-pill">Tokens P:${promptTokens} C:${completionTokens} T:${totalTokens}</span>
         `;
       }
 
@@ -757,6 +772,12 @@
           renderArchitectureMeta(null);
           return;
         }
+
+        const tokenUsage = arch.token_usage || {};
+        const promptTokens = tokenUsage.prompt_tokens ?? "—";
+        const completionTokens = tokenUsage.completion_tokens ?? "—";
+        const totalTokens = tokenUsage.total_tokens ?? "—";
+        const tokenLabel = `P:${promptTokens} C:${completionTokens} T:${totalTokens}`;
 
         if (!mermaidInitialized) {
           mermaid.initialize({
@@ -789,7 +810,7 @@
             EMB --> VDB[(Vector DB\\n${arch.vectordb})]:::cache
             VDB -- Retrieval ${retrieval_sec ?? "N/A"}s --> DOCS([Retrieved Chunks]):::process
             DOCS --> LLM{{LLM Provider\\n${arch.llm_provider}}}:::llm
-            LLM -- Generate ${llm_sec ?? "N/A"}s --> RESP([Final Answer]):::output
+            LLM -- Generate ${llm_sec ?? "N/A"}s\\n${tokenLabel} --> RESP([Final Answer]):::output
 
             subgraph "1. Query & API"
               Q --> API
@@ -877,9 +898,13 @@
 
         const r = data.retrieval_sec ?? "—";
         const l = data.llm_sec ?? "—";
+        const tokenUsage = data.token_usage || {};
+        const promptTokens = tokenUsage.prompt_tokens ?? "—";
+        const completionTokens = tokenUsage.completion_tokens ?? "—";
+        const totalTokens = tokenUsage.total_tokens ?? "—";
         metaModel.textContent = `Model: ${data.llm_used || "—"}`;
         metaDocs.textContent = `Docs: ${data.retrieved_docs ?? "—"} (rag)`;
-        metaTime.textContent = `Latency: ${data.latency_sec ?? elapsed}s (R:${r}s L:${l}s)`;
+        metaTime.textContent = `Latency: ${data.latency_sec ?? elapsed}s (R:${r}s L:${l}s) | Tokens P:${promptTokens} C:${completionTokens} T:${totalTokens}`;
 
         answerHint.textContent = `AI analysis: ${data.latency_sec ?? elapsed}s`;
         statusEl.textContent = "AI complete";
