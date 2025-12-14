@@ -165,6 +165,23 @@
       min-height:120px;
     }
 
+    .chatWindow{
+      background: rgba(5,8,22,0.45);
+      border:1px solid rgba(148,163,184,0.18);
+      border-radius:12px;
+      padding:12px;
+      min-height:180px;
+      max-height:420px;
+      overflow:auto;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .chatMsg{padding:10px 12px; border-radius:12px; line-height:1.4; font-size:14px; white-space:pre-wrap;}
+    .chatMsg.user{align-self:flex-end; background: rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.35);}
+    .chatMsg.assistant{align-self:flex-start; background: rgba(11,23,54,0.65); border:1px solid rgba(148,163,184,0.22);}
+    .chatMeta{font-size:12px; color:rgba(226,232,240,0.65); margin-top:6px;}
+
     .cardsHeader{
       display:flex;
       justify-content:space-between;
@@ -394,11 +411,17 @@
           <div class="chip">Skill: Java/Python</div>
           <div class="chip">Statistici Software</div>
         </div>
+
+        <div style="margin-top:12px;">
+          <label class="small">RAG suplimentar (opțional, un query pe linie):</label>
+          <textarea id="ragExtras" placeholder="ex:\nScoate și arhitecții din Cluj\n+ lista de machine learning engineers" style="min-height:70px;"></textarea>
+        </div>
       </div>
 
       <div style="width:260px">
         <div class="controls">
           <button class="btn" id="generateBtn">Generează ⚡</button>
+          <button class="btn btnSecondary" id="resetChatBtn">Reset chat</button>
         </div>
 
         <div style="margin-top:10px;">
@@ -418,10 +441,13 @@
     <div class="grid">
       <div class="panel">
         <div class="panelHeader">
-          <div class="panelTitle">AI Analysis</div>
-          <button class="miniBtn" id="copyAnswerBtn">Copy answer</button>
+          <div>
+            <div class="panelTitle">AI Conversation</div>
+            <div class="small" id="conversationMeta">Conversație nouă</div>
+          </div>
+          <button class="miniBtn" id="copyAnswerBtn">Copiază ultimul răspuns</button>
         </div>
-        <div id="analysisText" class="analysisText">—</div>
+        <div id="chatWindow" class="chatWindow"></div>
       </div>
 
       <div class="panel">
@@ -469,11 +495,14 @@
     const queryInput = document.getElementById("queryInput");
     const generateBtn = document.getElementById("generateBtn");
     const analysisToggle = document.getElementById("analysisToggle");
+    const ragExtras = document.getElementById("ragExtras");
     const cardsEl = document.getElementById("cards");
     const cardsCountEl = document.getElementById("cardsCount");
-    const analysisTextEl = document.getElementById("analysisText");
+    const chatWindow = document.getElementById("chatWindow");
     const copyAnswerBtn = document.getElementById("copyAnswerBtn");
     const cardsKEl = document.getElementById("cardsK");
+    const resetChatBtn = document.getElementById("resetChatBtn");
+    const conversationMeta = document.getElementById("conversationMeta");
 
     const statusDot = document.getElementById("statusDot");
     const statusText = document.getElementById("statusText");
@@ -493,6 +522,8 @@
     let lastAnswer = "";
     let lastArch = null;
     let lastRagMeta = null;
+    let conversationId = null;
+    let chatMessages = [];
 
     function setBusy(isBusy){
       statusDot.classList.remove("ok","busy");
@@ -506,6 +537,20 @@
         .replaceAll("&","&amp;")
         .replaceAll("<","&lt;")
         .replaceAll(">","&gt;");
+    }
+
+    function renderChat(){
+      chatWindow.innerHTML = "";
+      for(const msg of chatMessages){
+        const div = document.createElement("div");
+        div.className = `chatMsg ${msg.role}`;
+        div.textContent = msg.content || "";
+        chatWindow.appendChild(div);
+      }
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+      conversationMeta.textContent = conversationId
+        ? `ID conversație: ${conversationId.slice(0,8)}…`
+        : "Conversație nouă";
     }
 
     function renderCards(sources){
@@ -588,35 +633,28 @@
       metaTokens.textContent = `Tokens P:${tu.prompt_tokens ?? "—"} C:${tu.completion_tokens ?? "—"} T:${tu.total_tokens ?? "—"}`;
     }
 
-    async function doSearch(query){
+    async function doChat(message){
       const k = parseInt(cardsKEl.value, 10) || 16;
-      const res = await fetch("/search",{
+      const extras = (ragExtras.value || "")
+        .split("\n")
+        .map(x => x.trim())
+        .filter(Boolean);
+
+      const res = await fetch("/chat",{
         method:"POST",
         headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ query, k })
-      });
-      if(!res.ok){
-        const t = await res.text();
-        throw new Error("Search failed: " + t);
-      }
-      return await res.json();
-    }
-
-    async function doAnalysis(query){
-      // IMPORTANT FIX:
-      // Send same k to /query as we used for cards,
-      // so RAG sees the same neighborhood (instead of default k=8).
-      const k = parseInt(cardsKEl.value, 10) || 16;
-
-      const res = await fetch("/query",{
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify({ query, with_llm: true, k })
+        body: JSON.stringify({
+          message,
+          conversation_id: conversationId,
+          rag_queries: extras.length ? extras : undefined,
+          with_llm: analysisToggle.checked,
+          k,
+        })
       });
 
       if(!res.ok){
         const t = await res.text();
-        throw new Error("Query failed: " + t);
+        throw new Error("Chat failed: " + t);
       }
       return await res.json();
     }
@@ -713,43 +751,48 @@ flowchart TD
     copyAnswerBtn.addEventListener("click", ()=>{
       navigator.clipboard.writeText(lastAnswer || "");
     });
+    resetChatBtn.addEventListener("click", resetChat);
+
+    function resetChat(){
+      conversationId = null;
+      chatMessages = [];
+      lastAnswer = "";
+      renderChat();
+    }
 
     async function run(){
       const query = (queryInput.value || "").trim();
       if(!query) return;
 
       setBusy(true);
-      analysisTextEl.textContent = "—";
+
+      chatMessages.push({ role:"user", content: query });
+      renderChat();
 
       try{
-        // 1) Search (cards)
-        const searchRes = await doSearch(query);
-        renderCards(searchRes.sources || []);
+        const chatRes = await doChat(query);
 
-        // 2) Analysis (LLM)
-        if(analysisToggle.checked){
-          const ragRes = await doAnalysis(query);
+        conversationId = chatRes.conversation_id || conversationId;
+        renderCards(chatRes.primary_sources || []);
 
-          lastAnswer = (ragRes.answer || "").trim();
-          analysisTextEl.textContent = lastAnswer || "Modelul nu a returnat conținut text pentru această cerere (posibil refuz sau răspuns gol).";
+        lastAnswer = (chatRes.answer || "").trim();
+        chatMessages.push({ role:"assistant", content: lastAnswer || "(niciun răspuns)" });
+        renderChat();
 
-          // architecture/meta
-          lastArch = ragRes.architecture || null;
-          updateTopMeta({
-            llm_provider: (ragRes.architecture||{}).llm_provider || "OPENAI",
-            retrieved_docs: ragRes.retrieved_docs,
-            latency_sec: ragRes.latency_sec,
-            retrieval_sec: ragRes.retrieval_sec,
-            llm_sec: ragRes.llm_sec,
-            token_usage: ragRes.token_usage || {},
-          });
-        } else {
-          analysisTextEl.textContent = "AI analysis este dezactivat.";
-          lastAnswer = "";
-        }
+        lastArch = chatRes.architecture || null;
+        lastRagMeta = chatRes;
+        updateTopMeta({
+          llm_provider: (chatRes.architecture||{}).llm_provider || chatRes.llm_used,
+          retrieved_docs: chatRes.retrieved_docs,
+          latency_sec: chatRes.latency_sec,
+          retrieval_sec: chatRes.retrieval_sec,
+          llm_sec: chatRes.llm_sec,
+          token_usage: chatRes.token_usage || {},
+        });
 
       }catch(err){
-        analysisTextEl.textContent = "Eroare: " + (err?.message || err);
+        chatMessages.push({ role:"assistant", content: "Eroare: " + (err?.message || err) });
+        renderChat();
       }finally{
         setBusy(false);
       }
@@ -763,6 +806,7 @@ flowchart TD
     });
 
     // initial
+    resetChat();
     setBusy(false);
   </script>
 </body>

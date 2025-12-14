@@ -3,6 +3,7 @@ import time
 import json
 import hashlib
 from pathlib import Path
+import uuid
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -28,7 +29,7 @@ if load_dotenv:
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_chroma import Chroma
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 
 STATIC_DIR = APP_DIR / "static"
@@ -79,9 +80,28 @@ class QueryBody(BaseModel):
     k: Optional[int] = Field(default=None, ge=1, le=200)
 
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatBody(BaseModel):
+    message: str = Field(..., description="Mesajul curent al utilizatorului")
+    conversation_id: Optional[str] = Field(
+        default=None, description="ID conversație pentru continuitate"
+    )
+    rag_queries: Optional[List[str]] = Field(
+        default=None,
+        description="Listează query-uri suplimentare de retrieval (ex: \"scoate cu RAG ...\")",
+    )
+    with_llm: bool = True
+    k: Optional[int] = Field(default=None, ge=1, le=200)
+
+
 _embeddings: Optional[OpenAIEmbeddings] = None
 _vectordb: Optional[Chroma] = None
 _ANALYSIS_CACHE: Dict[str, Dict[str, Any]] = {}
+_CHAT_SESSIONS: Dict[str, Dict[str, Any]] = {}
 
 
 def _sha256(s: str) -> str:
@@ -179,6 +199,17 @@ def _compact_context(sources: List[Dict[str, Any]], max_people: int) -> str:
         lines.append(f"- Profil {i}: " + " | ".join(extra))
 
     return "\n".join(lines).strip()
+
+
+def _format_context_block(retrievals: List[Dict[str, Any]]) -> str:
+    blocks: List[str] = []
+    for idx, r in enumerate(retrievals, start=1):
+        q = r.get("query") or f"query_{idx}"
+        sources = r.get("sources") or []
+        block = [f"### Context pentru: {q}"]
+        block.append(_compact_context(sources, CONTEXT_MAX_PEOPLE) or "- niciun profil relevant")
+        blocks.append("\n".join(block))
+    return "\n\n".join(blocks).strip()
 
 
 def _extract_refusal(resp: Any) -> Optional[str]:
@@ -423,4 +454,121 @@ def query_rag(body: QueryBody):
     }
 
     _ANALYSIS_CACHE[cache_key] = payload
+    return payload
+
+
+def _new_conversation_id() -> str:
+    return uuid.uuid4().hex
+
+
+def _append_history(conv: Dict[str, Any], role: str, content: str) -> None:
+    conv.setdefault("history", []).append({"role": role, "content": content})
+
+
+@app.post("/chat")
+def chat(body: ChatBody):
+    t0 = time.time()
+    k = body.k or RAG_K_DEFAULT
+    if not body.message.strip():
+        raise HTTPException(status_code=400, detail="Mesajul este gol")
+
+    conversation_id = body.conversation_id or _new_conversation_id()
+    conv = _CHAT_SESSIONS.setdefault(conversation_id, {"history": [], "last_sources": []})
+
+    vectordb = _get_vectordb()
+
+    # --- retrieval pentru mesaj curent + query-uri suplimentare ---
+    retrievals: List[Dict[str, Any]] = []
+    main_queries = [body.message]
+    extra_queries = body.rag_queries or []
+    t_retrieval0 = time.time()
+    for q in main_queries + extra_queries:
+        docs = vectordb.similarity_search(q, k=k)
+        sources = _docs_to_sources(docs)
+        retrievals.append({"query": q, "sources": sources, "retrieved_docs": len(docs)})
+    retrieval_sec = time.time() - t_retrieval0
+
+    primary_sources = retrievals[0]["sources"] if retrievals else []
+    all_sources: List[Dict[str, Any]] = []
+    seen_ids: set = set()
+    for r in retrievals:
+        for s in r.get("sources", []):
+            sid = s.get("source_id") or s.get("vmid")
+            if sid:
+                if sid in seen_ids:
+                    continue
+                seen_ids.add(sid)
+            all_sources.append(s)
+
+    context_block = _format_context_block(retrievals)
+
+    # --- prompt ---
+    system = SystemMessage(content=SYSTEM_PROMPT)
+    msgs = [system]
+
+    for h in conv.get("history", [])[-10:]:
+        role = h.get("role")
+        content = h.get("content") or ""
+        if role == "user":
+            msgs.append(HumanMessage(content=content))
+        elif role == "assistant":
+            msgs.append(AIMessage(content=content))
+
+    user_prompt = USER_PROMPT_TEMPLATE.format(query=body.message, context=context_block)
+    msgs.append(HumanMessage(content=user_prompt))
+
+    llm_sec = 0.0
+    answer = "AI analysis este dezactivat pentru acest mesaj."
+    token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    if body.with_llm:
+        llm = _make_llm()
+        t_llm0 = time.time()
+        resp = llm.invoke(msgs)
+        llm_sec = time.time() - t_llm0
+        answer = _extract_llm_text(resp).strip()
+
+        meta = getattr(resp, "response_metadata", None) or {}
+        usage = meta.get("token_usage") if isinstance(meta, dict) else None
+        if isinstance(usage, dict):
+            pt = int(usage.get("prompt_tokens") or 0)
+            ct = int(usage.get("completion_tokens") or 0)
+            tt = int(usage.get("total_tokens") or (pt + ct))
+            token_usage = {"prompt_tokens": pt, "completion_tokens": ct, "total_tokens": tt}
+
+    _append_history(conv, "user", body.message)
+    _append_history(conv, "assistant", answer)
+    conv["last_sources"] = retrievals
+
+    latency_sec = round(time.time() - t0, 3)
+    payload = {
+        "conversation_id": conversation_id,
+        "answer": answer,
+        "primary_sources": primary_sources,
+        "all_sources": all_sources,
+        "retrievals": [
+            {
+                "query": r.get("query"),
+                "count": len(r.get("sources") or []),
+                "retrieved_docs": r.get("retrieved_docs", 0),
+            }
+            for r in retrievals
+        ],
+        "llm_used": "OPENAI" if body.with_llm else "DISABLED",
+        "retrieved_docs": len(primary_sources),
+        "unique_sources": len(all_sources),
+        "k": k,
+        "latency_sec": latency_sec,
+        "retrieval_sec": round(retrieval_sec, 3),
+        "llm_sec": round(llm_sec, 3),
+        "architecture": {
+            "embedding_model": EMBEDDING_MODEL,
+            "vectordb": "Chroma",
+            "llm_provider": "OPENAI" if body.with_llm else "DISABLED",
+            "token_usage": token_usage,
+            "prompt_characters": len(SYSTEM_PROMPT) + len(user_prompt),
+        },
+        "token_usage": token_usage,
+    }
+
     return payload
