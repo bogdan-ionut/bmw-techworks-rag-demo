@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 
 load_dotenv()
@@ -148,13 +147,10 @@ def main() -> None:
     # 3. Construim Document-ele
     docs = build_documents(records)
 
-    # 4. Split în chunks
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=100,
-    )
-    splits = splitter.split_documents(docs)
-    print(f"[INFO] After splitting: {len(splits)} chunks")
+    # 4. Sarim peste split: fiecare profil rămâne un Document atomic
+    #    pentru self-querying pe metadatele bogate.
+    splits = docs
+    print(f"[INFO] Without splitting: {len(splits)} full documents")
 
     # 5. Embeddings + Chroma
     embeddings = OpenAIEmbeddings(
