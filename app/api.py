@@ -1,6 +1,7 @@
 # app/api.py
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -23,6 +24,12 @@ from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage, HumanMessage
 
 load_dotenv()
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="[%(levelname)s] %(asctime)s %(name)s - %(message)s",
+)
+logger = logging.getLogger("api")
 
 # -----------------------------
 # Paths / Static UI
@@ -58,7 +65,7 @@ def load_secrets() -> Dict[str, str]:
     region = os.getenv("AWS_REGION", "eu-north-1")
 
     if not secret_name:
-        print("[INFO] AWS_SECRET_NAME not set – using only .env for API keys.")
+        logger.info("AWS_SECRET_NAME not set – using only .env for API keys.")
         return {
             "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", ""),
             "ANTHROPIC_API_KEY": os.getenv("ANTHROPIC_API_KEY", ""),
@@ -71,9 +78,9 @@ def load_secrets() -> Dict[str, str]:
         resp = client.get_secret_value(SecretId=secret_name)
         secret_str = resp.get("SecretString") or "{}"
         secrets = json.loads(secret_str)
-        print(f"[INFO] Loaded secrets from AWS Secrets Manager: {secret_name}")
+        logger.info("Loaded secrets from AWS Secrets Manager: %s", secret_name)
     except (NoCredentialsError, BotoCoreError, ClientError) as e:
-        print(f"[WARN] Cannot read AWS secret ({e}). Falling back to .env")
+        logger.warning("Cannot read AWS secret (%s). Falling back to .env", e)
         secrets = {}
 
     return {
@@ -113,6 +120,48 @@ def _cache_get(key: Tuple[Any, ...]) -> Optional[Dict[str, Any]]:
 
 def _cache_set(key: Tuple[Any, ...], value: Dict[str, Any]) -> None:
     _CACHE[key] = {"t": time.time(), "v": value}
+
+
+def _extract_token_usage(resp: Any) -> Dict[str, int]:
+    usage: Dict[str, int] = {}
+
+    metadata = getattr(resp, "usage_metadata", None) or {}
+    if not metadata:
+        raw_meta = getattr(resp, "response_metadata", {}) or {}
+        metadata = raw_meta.get("token_usage") or raw_meta.get("usage", {})
+
+    if metadata:
+        usage = {
+            "prompt_tokens": int(metadata.get("prompt_tokens") or metadata.get("input_tokens") or 0),
+            "completion_tokens": int(metadata.get("completion_tokens") or metadata.get("output_tokens") or 0),
+        }
+        total = metadata.get("total_tokens")
+        if total is None:
+            total = (usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0))
+        usage["total_tokens"] = int(total)
+
+    return usage
+
+
+def _log_token_usage(stage: str, token_usage: Dict[str, int], query: str) -> None:
+    logger.info(
+        "%s tokens - prompt: %s, completion: %s, total: %s (query_len=%s chars)",
+        stage,
+        token_usage.get("prompt_tokens", 0),
+        token_usage.get("completion_tokens", 0),
+        token_usage.get("total_tokens", 0),
+        len(query),
+    )
+
+
+def _build_architecture_meta(token_usage: Dict[str, int], context_text: str, llm_provider: str) -> Dict[str, Any]:
+    return {
+        "embedding_model": EMBED_MODEL,
+        "vectordb": "Chroma",
+        "llm_provider": llm_provider,
+        "token_usage": token_usage or None,
+        "prompt_characters": len(context_text),
+    }
 
 
 # -----------------------------
@@ -331,9 +380,12 @@ def _looks_like_short_search(query: str) -> bool:
 def run_search(query: str, k: int) -> Dict[str, Any]:
     start = time.time()
 
+    logger.info("[SEARCH] query=%r k=%s", query, k)
+
     cache_key = ("search", query.strip().lower(), int(k), EMBED_MODEL)
     cached = _cache_get(cache_key)
     if cached:
+        logger.info("[SEARCH] cache hit (k=%s, embed=%s)", k, EMBED_MODEL)
         return cached
 
     t0 = time.time()
@@ -341,6 +393,14 @@ def run_search(query: str, k: int) -> Dict[str, Any]:
     t1 = time.time()
 
     sources = _docs_to_sources(docs)
+
+    logger.info(
+        "[SEARCH] retrieved_docs=%s unique_sources=%s retrieval=%.2fs latency=%.2fs",
+        len(docs),
+        len(sources),
+        t1 - t0,
+        time.time() - start,
+    )
 
     result = {
         "sources": sources,
@@ -353,6 +413,8 @@ def run_search(query: str, k: int) -> Dict[str, Any]:
             "embedding_model": EMBED_MODEL,
             "vectordb": "Chroma",
             "llm_provider": provider,
+            "token_usage": None,
+            "prompt_characters": len(query),
         }
     }
     _cache_set(cache_key, result)
@@ -373,16 +435,30 @@ def search_endpoint(
 def run_rag(query: str, k: int, with_llm: bool) -> Dict[str, Any]:
     start = time.time()
 
+    logger.info("[RAG] query=%r k=%s with_llm=%s", query, k, with_llm)
+
     # 1) Retrieve (same as search, but allow different k)
     t0 = time.time()
     docs = vectordb.similarity_search(query, k=k)
     t1 = time.time()
 
     sources = _docs_to_sources(docs)
+    context_text = _sources_to_compact_context(sources, limit=min(CONTEXT_MAX_PEOPLE, len(sources)))
+
+    logger.info(
+        "[RAG] retrieval done - docs=%s unique_sources=%s retrieval=%.2fs",
+        len(docs),
+        len(sources),
+        t1 - t0,
+    )
+    logger.info("[RAG] compact prompt size=%s chars", len(context_text))
 
     # 2) Optional: skip LLM for short "keyword search" queries
     if with_llm is False or (SKIP_LLM_FOR_SHORT and _looks_like_short_search(query)):
         answer = "Am găsit profile relevante. Vezi cardurile din dreapta."
+        token_usage: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        arch = _build_architecture_meta(token_usage, context_text, provider)
+        _log_token_usage("RAG-SKIPPED", token_usage, query)
         return {
             "answer": answer,
             "sources": sources,
@@ -393,21 +469,16 @@ def run_rag(query: str, k: int, with_llm: bool) -> Dict[str, Any]:
             "latency_sec": round(time.time() - start, 2),
             "retrieval_sec": round(t1 - t0, 2),
             "llm_sec": 0.0,
-            "architecture": {
-                "embedding_model": EMBED_MODEL,
-                "vectordb": "Chroma",
-                "llm_provider": provider,
-            }
+            "architecture": arch,
+            "token_usage": token_usage,
         }
 
     # Cache LLM answers (great for demos)
     cache_key = ("rag", query.strip().lower(), int(k), provider, MAX_TOKENS, TEMPERATURE, CONTEXT_MAX_PEOPLE)
     cached = _cache_get(cache_key)
     if cached:
+        logger.info("[RAG] cache hit (provider=%s, k=%s)", provider, k)
         return cached
-
-    # 3) Build SMALL context for LLM (metadata only)
-    context_text = _sources_to_compact_context(sources, limit=min(CONTEXT_MAX_PEOPLE, len(sources)))
 
     # 4) Call LLM
     t2 = time.time()
@@ -420,6 +491,13 @@ def run_rag(query: str, k: int, with_llm: bool) -> Dict[str, Any]:
     t3 = time.time()
 
     answer = getattr(resp, "content", str(resp))
+    token_usage = _extract_token_usage(resp)
+    _log_token_usage("RAG-LLM", token_usage, query)
+
+    llm_latency = round(t3 - t2, 2)
+    retrieval_latency = round(t1 - t0, 2)
+    total_latency = round(t3 - start, 2)
+    arch = _build_architecture_meta(token_usage, context_text, provider)
 
     result = {
         "answer": answer,
@@ -428,15 +506,19 @@ def run_rag(query: str, k: int, with_llm: bool) -> Dict[str, Any]:
         "retrieved_docs": len(docs),
         "unique_sources": len(sources),
         "k": k,
-        "latency_sec": round(t3 - start, 2),
-        "retrieval_sec": round(t1 - t0, 2),
-        "llm_sec": round(t3 - t2, 2),
-        "architecture": {
-            "embedding_model": EMBED_MODEL,
-            "vectordb": "Chroma",
-            "llm_provider": provider,
-        }
+        "latency_sec": total_latency,
+        "retrieval_sec": retrieval_latency,
+        "llm_sec": llm_latency,
+        "architecture": arch,
+        "token_usage": token_usage,
     }
+    logger.info(
+        "[RAG] completed - latency_total=%.2fs retrieval=%.2fs llm=%.2fs tokens=%s",
+        total_latency,
+        retrieval_latency,
+        llm_latency,
+        token_usage or {},
+    )
     _cache_set(cache_key, result)
     return result
 
