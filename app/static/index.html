@@ -597,52 +597,6 @@
         return uniq.length;
       }
 
-      async function doSearch(query) {
-        const k = parseInt(cardsKEl.value || "24", 10);
-        const started = performance.now();
-        const res = await fetch(`/search?q=${encodeURIComponent(query)}&k=${k}`);
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const elapsed = ((performance.now() - started) / 1000).toFixed(2);
-
-        renderProfiles(data.sources || []);
-        metaDocs.textContent = `Docs: ${data.retrieved_docs ?? "—"} (search)`;
-        metaTime.textContent = `Latency: ${data.latency_sec ?? elapsed}s (search)`;
-        metaModel.textContent = `Model: —`;
-        statusEl.textContent = "Search complete";
-        return data;
-      }
-
-      async function doAnalysis(query) {
-        const started = performance.now();
-        const res = await fetch("/query", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query, with_llm: true }),
-          signal: abortController.signal,
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const elapsed = ((performance.now() - started) / 1000).toFixed(2);
-
-        lastAnswerRaw = data.answer || "";
-        answerEl.innerHTML = formatAnswer(lastAnswerRaw || "Nu am putut genera un răspuns.");
-
-        const r = data.retrieval_sec ?? "—";
-        const l = data.llm_sec ?? "—";
-        const tokenUsage = data.token_usage || {};
-        const promptTokens = tokenUsage.prompt_tokens ?? "—";
-        const completionTokens = tokenUsage.completion_tokens ?? "—";
-        const totalTokens = tokenUsage.total_tokens ?? "—";
-        metaModel.textContent = `Model: ${data.llm_used || "—"}`;
-        metaDocs.textContent = `Docs: ${data.retrieved_docs ?? "—"} (rag)`;
-        metaTime.textContent = `Latency: ${data.latency_sec ?? elapsed}s (R:${r}s L:${l}s) | Tokens P:${promptTokens} C:${completionTokens} T:${totalTokens}`;
-
-        answerHint.textContent = `AI analysis: ${data.latency_sec ?? elapsed}s`;
-        statusEl.textContent = "AI complete";
-        return data;
-      }
-
       async function ask() {
         const query = (qEl.value || "").trim();
         if (!query) return;
@@ -892,9 +846,13 @@
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
         const elapsed = ((performance.now() - started) / 1000).toFixed(2);
+        const answerRaw = (data.answer || "").trim();
+        const answerToShow =
+          answerRaw ||
+          "Nu am primit niciun răspuns de la model. Verifică dacă AI analysis este activ și cheia API este configurată.";
 
-        lastAnswerRaw = data.answer || "";
-        answerEl.innerHTML = formatAnswer(lastAnswerRaw || "Nu am putut genera un răspuns.");
+        lastAnswerRaw = answerToShow;
+        answerEl.innerHTML = formatAnswer(answerToShow);
 
         const r = data.retrieval_sec ?? "—";
         const l = data.llm_sec ?? "—";
@@ -906,8 +864,10 @@
         metaDocs.textContent = `Docs: ${data.retrieved_docs ?? "—"} (rag)`;
         metaTime.textContent = `Latency: ${data.latency_sec ?? elapsed}s (R:${r}s L:${l}s) | Tokens P:${promptTokens} C:${completionTokens} T:${totalTokens}`;
 
-        answerHint.textContent = `AI analysis: ${data.latency_sec ?? elapsed}s`;
-        statusEl.textContent = "AI complete";
+        answerHint.textContent = answerRaw
+          ? `AI analysis: ${data.latency_sec ?? elapsed}s`
+          : "AI analysis nu a putut genera un răspuns.";
+        statusEl.textContent = answerRaw ? "AI complete" : "AI fără răspuns";
         updateLastArch(data);
         return data;
       }
