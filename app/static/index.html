@@ -219,30 +219,80 @@
         transition-delay: 0s;
       }
       .modal-content {
-        background: var(--bg-dark);
+        background: radial-gradient(circle at 10% 20%, rgba(59,130,246,0.08), transparent 35%),
+          radial-gradient(circle at 90% 15%, rgba(6,182,212,0.08), transparent 35%),
+          var(--bg-dark);
         border: 1px solid var(--border);
-        border-radius: var(--radius);
-        padding: 30px;
-        width: 90%;
-        max-width: 900px;
-        box-shadow: var(--shadow);
+        border-radius: 24px;
+        padding: 26px 28px;
+        width: 92%;
+        max-width: 1200px;
+        box-shadow: 0 30px 90px rgba(0,0,0,0.65);
         transform: scale(0.95);
         transition: transform 0.3s ease;
       }
       .modal-overlay.visible .modal-content {
         transform: scale(1);
       }
-      .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+      .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 16px; }
+      .modal-subtitle { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+      .modal-actions { display: flex; gap: 12px; align-items: center; }
+      .legend { display: flex; gap: 8px; flex-wrap: wrap; }
+      .legend-item { padding: 6px 10px; border-radius: 10px; font-size: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--muted); }
+      .legend-item.live { border-color: rgba(16,185,129,0.4); color: #6ee7b7; }
+      .legend-item.latency { border-color: rgba(59,130,246,0.4); color: #bfdbfe; }
+      .legend-item.cached { border-color: rgba(250,204,21,0.4); color: #fef08a; }
+
+      .arch-layout { display: grid; grid-template-columns: 320px 1fr; gap: 18px; align-items: start; }
+      .arch-meta { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 16px; padding: 14px; display: grid; gap: 10px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.03); }
+      .meta-placeholder { color: var(--muted); font-size: 13px; }
+      .meta-block { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; display: grid; gap: 4px; }
+      .meta-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+      .meta-value { font-weight: 800; font-size: 15px; }
+      .meta-hint { color: var(--muted); font-size: 12px; }
+
+      .arch-chart { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 16px; padding: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 20px 60px rgba(0,0,0,0.35); }
+      .chart-wrap { background: linear-gradient(180deg, rgba(30,41,59,0.65), rgba(2,6,23,0.9)); border: 1px solid var(--border); border-radius: 14px; padding: 12px; min-height: 420px; }
+      .arch-footer { padding: 12px 4px 0; color: var(--muted); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+      .footer-pill { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-weight: 700; }
+
+      @media (max-width: 960px) {
+        .arch-layout { grid-template-columns: 1fr; }
+        .modal-content { padding: 22px 18px; width: 96%; }
+        .modal-header { flex-direction: column; align-items: flex-start; }
+        .modal-actions { width: 100%; justify-content: space-between; }
+      }
     </style>
   </head>
   <body>
     <div id="flowchart-modal" class="modal-overlay">
       <div class="modal-content">
         <div class="modal-header">
-          <div class="panel-title">Live Application Architecture</div>
-          <button id="close-flowchart-modal" class="ghost-btn">Close</button>
+          <div>
+            <div class="panel-title">Live Application Architecture</div>
+            <p class="modal-subtitle">Vizualizare live a fluxului de la interfață la răspunsul AI</p>
+          </div>
+          <div class="modal-actions">
+            <div class="legend">
+              <span class="legend-item live">Live</span>
+              <span class="legend-item latency">Latency</span>
+              <span class="legend-item cached">Cache/Store</span>
+            </div>
+            <button id="close-flowchart-modal" class="ghost-btn">Close</button>
+          </div>
         </div>
-        <div class="mermaid" id="flowchart-container"></div>
+
+        <div class="arch-layout">
+          <div class="arch-meta" id="arch-meta">
+            <div class="meta-placeholder">Arhitectura va fi afișată după prima căutare.</div>
+          </div>
+          <div class="arch-chart">
+            <div class="chart-wrap">
+              <div class="mermaid" id="flowchart-container"></div>
+            </div>
+            <div id="arch-footer" class="arch-footer"></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -655,42 +705,109 @@
       const viewFlowchartBtn = document.getElementById("view-flowchart");
       const closeFlowchartBtn = document.getElementById("close-flowchart-modal");
       const flowchartContainer = document.getElementById("flowchart-container");
+      const archMetaEl = document.getElementById("arch-meta");
+      const archFooterEl = document.getElementById("arch-footer");
       let lastArch = null;
+      let mermaidInitialized = false;
+
+      function renderArchitectureMeta(arch, retrieval_sec, llm_sec) {
+        if (!arch) {
+          archMetaEl.innerHTML = `<div class="meta-placeholder">Arhitectura va fi afișată după prima căutare.</div>`;
+          archFooterEl.textContent = "";
+          return;
+        }
+
+        const retrieval = retrieval_sec ?? "N/A";
+        const llm = llm_sec ?? "N/A";
+
+        archMetaEl.innerHTML = `
+          <div class="meta-block">
+            <div class="meta-label">LLM Provider</div>
+            <div class="meta-value">${escapeHtml(arch.llm_provider || "-")}</div>
+            <div class="meta-hint">${llm}s generare</div>
+          </div>
+          <div class="meta-block">
+            <div class="meta-label">Vector DB</div>
+            <div class="meta-value">${escapeHtml(arch.vectordb || "-")}</div>
+            <div class="meta-hint">${retrieval}s retrieval</div>
+          </div>
+          <div class="meta-block">
+            <div class="meta-label">Embeddings</div>
+            <div class="meta-value">${escapeHtml(arch.embedding_model || "-")}</div>
+            <div class="meta-hint">index live</div>
+          </div>
+          <div class="meta-block">
+            <div class="meta-label">Observability</div>
+            <div class="meta-value">Latency & cache</div>
+            <div class="meta-hint">tracking R/L timings</div>
+          </div>
+        `;
+
+        archFooterEl.innerHTML = `
+          <span class="footer-pill">Latency R: ${retrieval}s</span>
+          <span class="footer-pill">Latency L: ${llm}s</span>
+          <span class="footer-pill">LLM: ${escapeHtml(arch.llm_provider || "-")}</span>
+          <span class="footer-pill">Vector DB: ${escapeHtml(arch.vectordb || "-")}</span>
+        `;
+      }
 
       async function renderFlowchart(arch, retrieval_sec, llm_sec) {
         if (!arch) {
           flowchartContainer.innerHTML = "Arhitectura va fi afișată după prima căutare.";
+          renderArchitectureMeta(null);
           return;
         }
 
+        if (!mermaidInitialized) {
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: "dark",
+            themeVariables: {
+              primaryColor: "#0ea5e9",
+              secondaryColor: "#1e293b",
+              tertiaryColor: "#111827",
+              textColor: "#e2e8f0",
+              lineColor: "#38bdf8",
+              primaryBorderColor: "#38bdf8"
+            }
+          });
+          mermaidInitialized = true;
+        }
+
+        renderArchitectureMeta(arch, retrieval_sec, llm_sec);
+
         const definition = `
           graph TD
-            A[User Query] --> B(FastAPI Backend);
-            B --> C{Embedding Model};
-            C --> D[Vector DB: ${arch.vectordb}];
-            D -- Latency: ${retrieval_sec}s --> E(Retrieved Docs);
-            E --> F{LLM Provider: ${arch.llm_provider}};
-            F -- Latency: ${llm_sec}s --> G[Final Answer];
+            classDef source fill:#0ea5e9,stroke:#38bdf8,color:#e2e8f0,stroke-width:2px,shadow:drop-shadow(0px 8px 16px rgba(56,189,248,0.25));
+            classDef process fill:#1e293b,stroke:#38bdf8,color:#e2e8f0;
+            classDef cache fill:#f59e0b,stroke:#fbbf24,color:#0b1021,stroke-width:2px;
+            classDef llm fill:#8b5cf6,stroke:#c4b5fd,color:#f8fafc,stroke-width:2px;
+            classDef output fill:#10b981,stroke:#6ee7b7,color:#0f172a,stroke-width:2px;
 
-            subgraph "1. Query"
-              A
+            Q([🧑‍💻 User Query]):::source --> API([FastAPI Backend]):::process
+            API --> EMB{{Embedding Model\\n${arch.embedding_model}}}:::process
+            EMB --> VDB[(Vector DB\\n${arch.vectordb})]:::cache
+            VDB -- Retrieval ${retrieval_sec ?? "N/A"}s --> DOCS([Retrieved Chunks]):::process
+            DOCS --> LLM{{LLM Provider\\n${arch.llm_provider}}}:::llm
+            LLM -- Generate ${llm_sec ?? "N/A"}s --> RESP([Final Answer]):::output
+
+            subgraph "1. Query & API"
+              Q --> API
             end
             subgraph "2. Retrieval"
-              C((fa:fa-brain ${arch.embedding_model}))
-              D((fa:fa-database ${arch.vectordb}))
+              EMB
+              VDB
+              DOCS
             end
-            subgraph "3. Synthesis"
-              F((fa:fa-robot ${arch.llm_provider}))
+            subgraph "3. Reasoning"
+              LLM
             end
             subgraph "4. Response"
-              G
+              RESP
             end
-
-            style A fill:#2563eb,stroke:#fff,stroke-width:2px
-            style G fill:#10b981,stroke:#fff,stroke-width:2px
         `;
 
-        const { svg } = await mermaid.render('mermaid-svg', definition);
+        const { svg } = await mermaid.render(`mermaid-${Date.now()}`, definition);
         flowchartContainer.innerHTML = svg;
       }
 
