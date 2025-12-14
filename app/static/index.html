@@ -807,8 +807,15 @@
             end
         `;
 
-        const { svg } = await mermaid.render(`mermaid-${Date.now()}`, definition);
-        flowchartContainer.innerHTML = svg;
+        const safeDefinition = definition.trim();
+
+        try {
+          const { svg } = await mermaid.render(`mermaid-${Date.now()}`, safeDefinition);
+          flowchartContainer.innerHTML = svg;
+        } catch (err) {
+          console.error("Mermaid render error", err);
+          flowchartContainer.innerHTML = `<div class="meta-placeholder">Nu am putut desena arhitectura (eroare mermaid). Încearcă din nou după o căutare nouă. Detalii: ${escapeHtml(err?.message || String(err))}</div>`;
+        }
       }
 
       viewFlowchartBtn.addEventListener("click", () => {

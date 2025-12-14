@@ -91,7 +91,7 @@ secrets = load_secrets()
 RAG_K_DEFAULT = int(os.getenv("RAG_K", "8"))                 # used for LLM analysis
 SEARCH_K_DEFAULT = int(os.getenv("SEARCH_K_DEFAULT", "24"))  # used for cards
 CONTEXT_MAX_PEOPLE = int(os.getenv("CONTEXT_MAX_PEOPLE", "8"))
-SKIP_LLM_FOR_SHORT = os.getenv("SKIP_LLM_FOR_SHORT", "1") == "1"
+SKIP_LLM_FOR_SHORT = os.getenv("SKIP_LLM_FOR_SHORT", "0") == "1"
 
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0.1"))
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "220"))
@@ -176,7 +176,7 @@ USER_PROMPT = """Question: {question}
 Context records:
 {context}
 
-Answer in Romanian, clear and concise. Use bullet points only if helpful.
+Answer in Romanian, clear and concise. Focus on explaining *why* the suggested people match the query (rol, tehnologie, seniority, locație). Include 2-3 exemple concrete din context (nume + rol) pentru a justifica selecția și menționează rapid criteriile cheie (stack, experiență relevantă). Evită liste lungi; oferă un rezumat scurt și util.
 """
 
 # -----------------------------
@@ -352,6 +352,7 @@ def run_search(query: str, k: int) -> Dict[str, Any]:
         "architecture": {
             "embedding_model": EMBED_MODEL,
             "vectordb": "Chroma",
+            "llm_provider": provider,
         }
     }
     _cache_set(cache_key, result)
