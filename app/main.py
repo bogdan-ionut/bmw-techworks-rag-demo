@@ -5,48 +5,38 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any
 
-import boto3
-from botocore.exceptions import BotoCoreError, ClientError
 from dotenv import load_dotenv
 
 from langchain_chroma import Chroma
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
 
-load_dotenv()
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+# --- paths ---
+BASE_DIR = Path(__file__).resolve().parent.parent  # project root
 DATA_DIR = BASE_DIR / "data"
-CHROMA_DIR = BASE_DIR / "chroma_db"
+CHROMA_DIR = Path(os.getenv("CHROMA_DIR", str(BASE_DIR / "chroma_db")))
+CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "profiles")
 
-# Fișierul tău local JSONL (ai deja ~478 rânduri)
+DOTENV_PATH = BASE_DIR / ".env"
+if DOTENV_PATH.exists():
+    load_dotenv(dotenv_path=DOTENV_PATH)
+else:
+    load_dotenv()
+
+# Fișierul local JSONL
 LOCAL_JSONL = DATA_DIR / "bmw_employees.jsonl"
 
-# Opțional: dacă vrei să folosești S3
-S3_BUCKET = os.getenv("S3_BUCKET")
-S3_KEY = os.getenv("S3_KEY", "bmw_employees.jsonl")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
 
 
-def maybe_download_from_s3() -> None:
-    """
-    Dacă fișierul local NU există, încearcă să îl descarci din S3.
-    Dacă nu ai credențiale / bucket, doar loghează un warning și continuă.
-    """
-    if LOCAL_JSONL.exists():
-        return
-
-    if not (S3_BUCKET and S3_KEY):
-        print("[INFO] Local JSONL missing și S3 nu e configurat – sar peste download.")
-        return
-
-    try:
-        s3 = boto3.client("s3")
-        print(f"[INFO] Download din S3: bucket={S3_BUCKET}, key={S3_KEY}")
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        s3.download_file(S3_BUCKET, S3_KEY, str(LOCAL_JSONL))
-        print("[INFO] Download din S3 completat.")
-    except (BotoCoreError, ClientError) as e:
-        print(f"[WARN] Nu pot descărca din S3 ({e}); continui doar cu local dacă apare ulterior.")
+def require_openai_key() -> str:
+    key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError(
+            "OPENAI_API_KEY lipsește. Pune cheia în .env în root-ul proiectului."
+        )
+    return key
 
 
 def load_jsonl(path: Path) -> List[Dict[str, Any]]:
@@ -100,17 +90,16 @@ def record_to_text(rec: Dict[str, Any]) -> str:
 def build_documents(records: List[Dict[str, Any]]) -> List[Document]:
     """
     Construiește Document-e LangChain cu metadata RICH pentru UI (/sources).
-    IMPORTANT: metadata-ul se propagă în chunks, apoi îl poți afișa în UI.
     """
     docs: List[Document] = []
     for rec in records:
         content = record_to_text(rec)
 
-        # Cheie stabilă pt dedup: vmid -> profile_url -> full_name
         stable_id = rec.get("vmid") or rec.get("profile_url") or rec.get("full_name") or "unknown"
 
         meta = {
             "id": stable_id,
+            "source_id": stable_id,  # util pt UI
             "vmid": rec.get("vmid"),
             "full_name": rec.get("full_name"),
             "profile_url": rec.get("profile_url"),
@@ -136,41 +125,40 @@ def build_documents(records: List[Dict[str, Any]]) -> List[Document]:
 
 
 def main() -> None:
-    # 1. S3 (opțional) + verificare fișier local
-    maybe_download_from_s3()
+    require_openai_key()
+
     if not LOCAL_JSONL.exists():
         raise FileNotFoundError(f"JSONL file not found at {LOCAL_JSONL}")
 
-    # 2. Încărcăm JSONL
     records = load_jsonl(LOCAL_JSONL)
-
-    # 3. Construim Document-ele
     docs = build_documents(records)
 
-    # 4. Sarim peste split: fiecare profil rămâne un Document atomic
-    #    pentru self-querying pe metadatele bogate.
+    # NU splităm: 1 profil = 1 Document
     splits = docs
     print(f"[INFO] Without splitting: {len(splits)} full documents")
 
-    # 5. Embeddings + Chroma
-    embeddings = OpenAIEmbeddings(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        model="text-embedding-3-large",
-    )
+    embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL)
 
+    # IMPORTANT: folosim aceeași colecție ca API-ul
     vectordb = Chroma.from_documents(
-        splits,
+        documents=splits,
         embedding=embeddings,
         persist_directory=str(CHROMA_DIR),
+        collection_name=CHROMA_COLLECTION,
     )
 
-    # Unele versiuni încă au persist(); altele persistă automat — nu stricăm nimic:
     try:
         vectordb.persist()
     except Exception:
         pass
 
     print(f"✅ Chroma DB built & saved in {CHROMA_DIR}")
+    print(f"✅ Collection: {CHROMA_COLLECTION}")
+    try:
+        count = vectordb._collection.count()  # type: ignore[attr-defined]
+        print(f"✅ Vectors count: {count}")
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

@@ -1,876 +1,769 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ro">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BMW TechWorks • Talent Intelligence</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-    <style>
-      :root {
-        --bg-dark: #020617;
-        --panel: rgba(15, 23, 42, 0.72);
-        --panel-soft: rgba(30, 41, 59, 0.5);
-        --border: rgba(148, 163, 184, 0.16);
-        --text: #e2e8f0;
-        --muted: #94a3b8;
-        --accent: #3b82f6;
-        --accent-2: #06b6d4;
-        --accent-glow: rgba(59, 130, 246, 0.25);
-        --radius: 20px;
-        --shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
-      }
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BMWTechWorks – Talent Intelligence</title>
 
-      * { box-sizing: border-box; }
+  <style>
+    :root{
+      --bg0:#050816;
+      --bg1:#08102a;
+      --card:#0b1736;
+      --card2:#0a1430;
+      --stroke:rgba(148,163,184,0.25);
+      --text:#e2e8f0;
+      --muted:#94a3b8;
+      --accent:#38bdf8;
+      --accent2:#0ea5e9;
+      --good:#10b981;
+      --warn:#f59e0b;
+      --bad:#ef4444;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      color:var(--text);
+      background:
+        radial-gradient(1200px 600px at 70% 30%, rgba(56,189,248,0.18), transparent 60%),
+        radial-gradient(900px 500px at 20% 60%, rgba(14,165,233,0.12), transparent 60%),
+        linear-gradient(180deg, var(--bg0), var(--bg1));
+      min-height:100vh;
+    }
 
-      body {
-        margin: 0;
-        font-family: "Plus Jakarta Sans", -apple-system, system-ui, sans-serif;
-        background-color: var(--bg-dark);
-        background-image:
-          radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.14) 0px, transparent 45%),
-          radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.14) 0px, transparent 45%),
-          radial-gradient(at 40% 100%, rgba(109, 40, 217, 0.12) 0px, transparent 50%);
-        color: var(--text);
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-      }
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:14px 18px;
+      border-bottom:1px solid rgba(148,163,184,0.12);
+      position:sticky; top:0;
+      backdrop-filter: blur(10px);
+      background: rgba(5,8,22,0.55);
+      z-index:10;
+    }
+    .brand{
+      display:flex; gap:10px; align-items:center;
+      font-weight:700;
+    }
+    .pill{
+      font-size:12px;
+      padding:4px 10px;
+      border:1px solid rgba(56,189,248,0.35);
+      border-radius:999px;
+      color:var(--accent);
+      background: rgba(56,189,248,0.08);
+      font-weight:600;
+      letter-spacing:0.2px;
+    }
 
-      header {
-        position: sticky;
-        top: 0;
-        z-index: 100;
-        padding: 26px 5vw 18px;
-        backdrop-filter: blur(12px);
-        background: rgba(2, 6, 23, 0.9);
-        border-bottom: 1px solid var(--border);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-      }
+    .container{
+      max-width:1120px;
+      margin:0 auto;
+      padding:18px;
+    }
 
-      .brand-area { display: flex; align-items: center; gap: 12px; }
-      .brand { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
-      .badge {
-        background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(6, 182, 212, 0.22));
-        padding: 6px 12px;
-        border-radius: 999px;
-        font-size: 11px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        color: #bfdbfe;
-        border: 1px solid var(--border);
-      }
+    .queryRow{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      justify-content:space-between;
+      margin-top:18px;
+    }
+    .queryBox{
+      flex:1;
+      background: rgba(11,23,54,0.65);
+      border:1px solid rgba(148,163,184,0.18);
+      border-radius:16px;
+      padding:14px;
+    }
+    textarea{
+      width:100%;
+      min-height:64px;
+      resize:vertical;
+      border:0;
+      outline:0;
+      background:transparent;
+      color:var(--text);
+      font-size:14px;
+      line-height:1.4;
+    }
 
-      .meta { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
-      .meta span { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); }
+    .controls{
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+    .btn{
+      border:1px solid rgba(56,189,248,0.35);
+      background: linear-gradient(180deg, rgba(56,189,248,0.18), rgba(14,165,233,0.10));
+      color:var(--text);
+      padding:10px 14px;
+      border-radius:12px;
+      cursor:pointer;
+      font-weight:700;
+      user-select:none;
+    }
+    .btn:active{transform: translateY(1px)}
+    .btnSecondary{
+      border:1px solid rgba(148,163,184,0.22);
+      background: rgba(11,23,54,0.45);
+      font-weight:600;
+    }
 
-      .hero { padding: 14px 5vw 10px; display: grid; gap: 10px; max-width: 1400px; width: 100%; margin: 0 auto; }
-      .hero h1 { margin: 0; font-size: 26px; letter-spacing: -0.4px; }
-      .hero p { margin: 0; color: var(--muted); max-width: 880px; line-height: 1.6; }
+    .small{
+      font-size:12px; color:var(--muted)
+    }
 
-      .search { width: 100%; max-width: 1200px; margin: 20px auto 10px; padding: 0 5vw; }
-      .input-wrap {
-        display: flex;
-        gap: 12px;
-        padding: 10px;
-        background: rgba(15, 23, 42, 0.75);
-        border-radius: 22px;
-        border: 1px solid var(--border);
-        box-shadow: 0 0 0 1px transparent, 0 30px 70px rgba(0,0,0,0.55);
-        transition: all 0.25s ease;
-      }
-      .input-wrap:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 25px 60px rgba(59,130,246,0.2); }
+    .chips{
+      display:flex; gap:8px; flex-wrap:wrap;
+      margin:10px 0 0 0;
+    }
+    .chip{
+      padding:6px 10px;
+      border:1px solid rgba(148,163,184,0.20);
+      border-radius:999px;
+      font-size:12px;
+      color:rgba(226,232,240,0.9);
+      background: rgba(11,23,54,0.45);
+    }
 
-      textarea {
-        flex: 1;
-        background: transparent;
-        border: none;
-        color: var(--text);
-        font-size: 16px;
-        padding: 12px 14px;
-        resize: none;
-        min-height: 64px;
-        outline: none;
-      }
+    .grid{
+      display:grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap:14px;
+      margin-top:16px;
+      align-items:start;
+    }
 
-      .actions { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+    .panel{
+      background: rgba(11,23,54,0.55);
+      border:1px solid rgba(148,163,184,0.18);
+      border-radius:16px;
+      padding:14px;
+    }
+    .panelHeader{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:10px;
+    }
+    .panelTitle{
+      font-size:12px;
+      letter-spacing:0.14em;
+      text-transform:uppercase;
+      color:rgba(226,232,240,0.75);
+      font-weight:800;
+    }
 
-      button.primary {
-        background: linear-gradient(135deg, var(--accent), var(--accent-2));
-        color: white;
-        border: none;
-        padding: 14px 22px;
-        border-radius: 16px;
-        font-weight: 700;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        box-shadow: 0 12px 32px var(--accent-glow);
-        transition: transform 0.15s ease, opacity 0.15s ease;
-      }
-      button.primary:disabled { opacity: 0.6; cursor: wait; }
-      button.primary:hover { opacity: 0.95; }
-      button.primary:active { transform: translateY(1px); }
+    .analysisText{
+      white-space:pre-wrap;
+      line-height:1.45;
+      font-size:14px;
+      color:rgba(226,232,240,0.92);
+      min-height:120px;
+    }
 
-      .controls {
-        display:flex;
-        gap:10px;
-        align-items:center;
-        justify-content:flex-end;
-        flex-wrap: wrap;
-        color: var(--muted);
-        font-size: 12px;
-      }
-      .ctrl {
-        display:flex;
-        gap:8px;
-        align-items:center;
-        padding: 6px 10px;
-        border: 1px solid var(--border);
-        background: rgba(255,255,255,0.03);
-        border-radius: 12px;
-      }
-      .ctrl select {
-        background: rgba(2, 6, 23, 0.45);
-        color: var(--text);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 6px 8px;
-        outline: none;
-        font-weight: 700;
-      }
-      .toggle input { transform: translateY(1px); }
+    .cardsHeader{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      margin-bottom:10px;
+    }
 
-      .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 5vw 0; max-width: 1200px; margin: 0 auto; }
-      .chip {
-        background: rgba(255,255,255,0.03);
-        border: 1px solid var(--border);
-        color: var(--muted);
-        padding: 8px 12px;
-        border-radius: 12px;
-        font-size: 13px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-      .chip:hover { background: rgba(255,255,255,0.08); color: white; border-color: rgba(59,130,246,0.4); }
+    .cards{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:12px;
+    }
+    .card{
+      background: rgba(10,20,48,0.65);
+      border:1px solid rgba(148,163,184,0.18);
+      border-radius:16px;
+      padding:12px;
+      display:flex;
+      gap:10px;
+      align-items:flex-start;
+      min-height:130px;
+    }
+    .avatar{
+      width:42px; height:42px; border-radius:999px;
+      background: rgba(148,163,184,0.15);
+      border:1px solid rgba(148,163,184,0.18);
+      flex:0 0 auto;
+      overflow:hidden;
+    }
+    .avatar img{width:100%; height:100%; object-fit:cover}
 
-      main { flex: 1; padding: 24px 5vw 60px; max-width: 1600px; width: 100%; margin: 0 auto; }
-      .grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 20px; align-items: start; }
+    .cardName{
+      font-weight:800;
+      margin:0;
+      font-size:14px;
+    }
+    .cardMeta{
+      margin-top:6px;
+      font-size:12px;
+      color:rgba(226,232,240,0.70);
+      line-height:1.35;
+    }
+    .tagRow{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      margin-top:8px;
+    }
+    .tag{
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid rgba(56,189,248,0.22);
+      background: rgba(56,189,248,0.08);
+      color:rgba(226,232,240,0.85);
+      font-size:11px;
+      font-weight:700;
+    }
+    .cardBtns{
+      display:flex;
+      gap:8px;
+      margin-top:10px;
+      flex-wrap:wrap;
+    }
+    .miniBtn{
+      padding:6px 10px;
+      border-radius:10px;
+      border:1px solid rgba(148,163,184,0.22);
+      background: rgba(11,23,54,0.45);
+      color:rgba(226,232,240,0.88);
+      font-size:12px;
+      cursor:pointer;
+      font-weight:700;
+    }
+    .miniBtn:hover{border-color: rgba(56,189,248,0.35)}
+    .right{
+      display:flex; gap:10px; align-items:center;
+    }
+    select{
+      background: rgba(11,23,54,0.55);
+      border:1px solid rgba(148,163,184,0.22);
+      color:rgba(226,232,240,0.9);
+      border-radius:12px;
+      padding:8px 10px;
+      outline:0;
+      font-weight:700;
+    }
+    .toggle{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      font-size:12px;
+      color:rgba(226,232,240,0.80);
+      user-select:none;
+    }
+    .toggle input{transform: translateY(1px)}
 
-      .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
-      .panel-header { padding: 18px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-      .panel-title { text-transform: uppercase; letter-spacing: 0.12em; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 10px; }
-      .pill { padding: 8px 12px; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+    .statusRow{
+      margin-top:8px;
+      font-size:12px;
+      color:rgba(226,232,240,0.65);
+      display:flex;
+      justify-content:flex-end;
+      gap:10px;
+      align-items:center;
+    }
+    .dot{
+      width:8px;height:8px;border-radius:99px;background:rgba(148,163,184,0.45);
+      display:inline-block;
+    }
+    .dot.ok{background:rgba(16,185,129,0.85)}
+    .dot.busy{background:rgba(245,158,11,0.9)}
 
-      .panel-body { padding: 18px 20px 22px; }
-      .answer { color: var(--text); line-height: 1.7; font-size: 15px; white-space: pre-wrap; }
-      .answer.placeholder { color: var(--muted); }
+    /* Modal */
+    .modalWrap{
+      position:fixed; inset:0;
+      background: rgba(0,0,0,0.55);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:50;
+      padding:18px;
+    }
+    .modal{
+      width:min(980px, 96vw);
+      background: rgba(10,20,48,0.92);
+      border:1px solid rgba(148,163,184,0.22);
+      border-radius:16px;
+      overflow:hidden;
+    }
+    .modalTop{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      padding:12px 14px;
+      border-bottom:1px solid rgba(148,163,184,0.16);
+    }
+    .modalTitle{
+      font-weight:900;
+      font-size:12px;
+      letter-spacing:0.14em;
+      text-transform:uppercase;
+      color:rgba(226,232,240,0.82);
+    }
+    .modalBody{
+      padding:14px;
+    }
+    .tabs{
+      display:flex; gap:8px; align-items:center;
+      margin-bottom:10px;
+    }
+    .tab{
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,0.22);
+      background: rgba(11,23,54,0.45);
+      color:rgba(226,232,240,0.8);
+      font-size:12px;
+      font-weight:800;
+      cursor:pointer;
+    }
+    .tab.active{
+      border-color: rgba(56,189,248,0.35);
+      color: rgba(226,232,240,0.95);
+      background: rgba(56,189,248,0.10);
+    }
+    .mono{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size:12px;
+      color:rgba(226,232,240,0.8);
+      background: rgba(5,8,22,0.55);
+      border:1px solid rgba(148,163,184,0.18);
+      border-radius:12px;
+      padding:10px;
+      white-space:pre-wrap;
+      line-height:1.35;
+    }
+    #archDiagram{
+      background: rgba(5,8,22,0.45);
+      border:1px solid rgba(148,163,184,0.18);
+      border-radius:12px;
+      padding:10px;
+      overflow:auto;
+    }
 
-      .toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 0 20px 12px; color: var(--muted); font-size: 12px; }
-      .ghost-btn { border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); padding: 8px 12px; border-radius: 12px; font-weight: 700; cursor: pointer; }
+    @media (max-width: 980px){
+      .grid{grid-template-columns:1fr}
+      .cards{grid-template-columns:1fr}
+    }
+  </style>
 
-      .profiles-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; padding: 16px 18px 20px; }
-      .card { background: var(--panel-soft); border: 1px solid var(--border); border-radius: 16px; padding: 14px; display: grid; gap: 12px; box-shadow: 0 18px 36px rgba(0,0,0,0.35); transition: transform 0.18s ease, border-color 0.18s ease; }
-      .card:hover { transform: translateY(-2px); border-color: rgba(59,130,246,0.4); }
-      .card-top { display: flex; gap: 12px; align-items: center; }
-      .avatar { width: 58px; height: 58px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(255,255,255,0.1); background: #1f2937; flex-shrink: 0; }
-      .avatar-fallback { width: 58px; height: 58px; border-radius: 50%; background: linear-gradient(135deg, #475569, #334155); color: white; display: grid; place-items: center; font-weight: 800; font-size: 18px; border: 2px solid rgba(255,255,255,0.1); flex-shrink: 0; }
-      .card h3 { margin: 0; font-size: 16px; }
-      .headline { margin: 2px 0 0; font-size: 12px; color: var(--muted); line-height: 1.4; }
-      .tags { display: flex; flex-wrap: wrap; gap: 6px; }
-      .tag { background: rgba(59,130,246,0.12); color: #bfdbfe; padding: 6px 10px; border-radius: 10px; font-size: 11px; font-weight: 700; border: 1px solid rgba(59,130,246,0.2); }
-      .meta-row { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
-      .meta-row span { display: inline-flex; gap: 6px; align-items: center; }
-      .card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-      .mini-btn { border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); padding: 8px 10px; border-radius: 10px; font-size: 12px; font-weight: 700; cursor: pointer; }
-      .mini-btn.primary { border-color: rgba(59,130,246,0.4); background: rgba(59,130,246,0.12); color: #cbd5f5; }
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+</head>
 
-      .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 24px; grid-column: 1/-1; }
+<body>
+  <div class="topbar">
+    <div class="brand">
+      <div style="font-size:14px;">BMWTechWorks</div>
+      <span class="pill">TALENT INTELLIGENCE</span>
+    </div>
 
-      @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } header { position: static; } }
+    <div class="right">
+      <span id="metaModel" class="small">Model: —</span>
+      <span id="metaDocs" class="small">Docs: —</span>
+      <span id="metaLatency" class="small">Latency: —</span>
+      <span id="metaTokens" class="small">Tokens: —</span>
 
-      .modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0,0,0,0.7);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-        opacity: 0;
-        visibility: hidden;
-        transition: opacity 0.3s ease, visibility 0s linear 0.3s;
-      }
-      .modal-overlay.visible {
-        opacity: 1;
-        visibility: visible;
-        transition-delay: 0s;
-      }
-      .modal-content {
-        background: radial-gradient(circle at 10% 20%, rgba(59,130,246,0.08), transparent 35%),
-          radial-gradient(circle at 90% 15%, rgba(6,182,212,0.08), transparent 35%),
-          var(--bg-dark);
-        border: 1px solid var(--border);
-        border-radius: 24px;
-        padding: 26px 28px;
-        width: 92%;
-        max-width: 1200px;
-        box-shadow: 0 30px 90px rgba(0,0,0,0.65);
-        transform: scale(0.95);
-        transition: transform 0.3s ease;
-      }
-      .modal-overlay.visible .modal-content {
-        transform: scale(1);
-      }
-      .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 16px; }
-      .modal-subtitle { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
-      .modal-actions { display: flex; gap: 12px; align-items: center; }
-      .legend { display: flex; gap: 8px; flex-wrap: wrap; }
-      .legend-item { padding: 6px 10px; border-radius: 10px; font-size: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.04); color: var(--muted); }
-      .legend-item.live { border-color: rgba(16,185,129,0.4); color: #6ee7b7; }
-      .legend-item.latency { border-color: rgba(59,130,246,0.4); color: #bfdbfe; }
-      .legend-item.cached { border-color: rgba(250,204,21,0.4); color: #fef08a; }
+      <select id="cardsK">
+        <option value="8">Cards: 8</option>
+        <option value="16" selected>Cards: 16</option>
+        <option value="24">Cards: 24</option>
+        <option value="48">Cards: 48</option>
+      </select>
 
-      .arch-layout { display: grid; grid-template-columns: 320px 1fr; gap: 18px; align-items: start; }
-      .arch-meta { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 16px; padding: 14px; display: grid; gap: 10px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.03); }
-      .meta-placeholder { color: var(--muted); font-size: 13px; }
-      .meta-block { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; display: grid; gap: 4px; }
-      .meta-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
-      .meta-value { font-weight: 800; font-size: 15px; }
-      .meta-hint { color: var(--muted); font-size: 12px; }
+      <button class="btn btnSecondary" id="viewArchBtn">View Architecture</button>
+    </div>
+  </div>
 
-      .arch-chart { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 16px; padding: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 20px 60px rgba(0,0,0,0.35); }
-      .chart-wrap { background: linear-gradient(180deg, rgba(30,41,59,0.65), rgba(2,6,23,0.9)); border: 1px solid var(--border); border-radius: 14px; padding: 12px; min-height: 420px; }
-      .arch-footer { padding: 12px 4px 0; color: var(--muted); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-      .footer-pill { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-weight: 700; }
+  <div class="container">
+    <div class="queryRow">
+      <div class="queryBox">
+        <textarea id="queryInput" placeholder="ex: cine sunt generative ai engineers?"></textarea>
 
-      @media (max-width: 960px) {
-        .arch-layout { grid-template-columns: 1fr; }
-        .modal-content { padding: 22px 18px; width: 96%; }
-        .modal-header { flex-direction: column; align-items: flex-start; }
-        .modal-actions { width: 100%; justify-content: space-between; }
-      }
-    </style>
-  </head>
-  <body>
-    <div id="flowchart-modal" class="modal-overlay">
-      <div class="modal-content">
-        <div class="modal-header">
-          <div>
-            <div class="panel-title">Live Application Architecture</div>
-            <p class="modal-subtitle">Vizualizare live a fluxului de la interfață la răspunsul AI</p>
-          </div>
-          <div class="modal-actions">
-            <div class="legend">
-              <span class="legend-item live">Live</span>
-              <span class="legend-item latency">Latency</span>
-              <span class="legend-item cached">Cache/Store</span>
-            </div>
-            <button id="close-flowchart-modal" class="ghost-btn">Close</button>
-          </div>
+        <div class="chips">
+          <div class="chip">Infrastructure Engineers</div>
+          <div class="chip">Masteranzi UBB</div>
+          <div class="chip">Skill: Java/Python</div>
+          <div class="chip">Statistici Software</div>
+        </div>
+      </div>
+
+      <div style="width:260px">
+        <div class="controls">
+          <button class="btn" id="generateBtn">Generează ⚡</button>
         </div>
 
-        <div class="arch-layout">
-          <div class="arch-meta" id="arch-meta">
-            <div class="meta-placeholder">Arhitectura va fi afișată după prima căutare.</div>
-          </div>
-          <div class="arch-chart">
-            <div class="chart-wrap">
-              <div class="mermaid" id="flowchart-container"></div>
-            </div>
-            <div id="arch-footer" class="arch-footer"></div>
-          </div>
+        <div style="margin-top:10px;">
+          <label class="toggle">
+            <input type="checkbox" id="analysisToggle" checked />
+            AI analysis
+          </label>
+        </div>
+
+        <div class="statusRow">
+          <span class="dot" id="statusDot"></span>
+          <span id="statusText">Pregătit</span>
         </div>
       </div>
     </div>
 
-    <header>
-      <div class="brand-area">
-        <div class="brand">BMW TechWorks</div>
-        <div class="badge">Talent Intelligence</div>
+    <div class="grid">
+      <div class="panel">
+        <div class="panelHeader">
+          <div class="panelTitle">AI Analysis</div>
+          <button class="miniBtn" id="copyAnswerBtn">Copy answer</button>
+        </div>
+        <div id="analysisText" class="analysisText">—</div>
       </div>
-      <div class="meta">
-        <span id="meta-model">Model: —</span>
-        <span id="meta-docs">Docs: —</span>
-        <span id="meta-time">Latency: —</span>
-        <span id="meta-uniq">Cards: —</span>
-        <button id="view-flowchart" class="ghost-btn" style="margin-left: 12px;">View Architecture</button>
+
+      <div class="panel">
+        <div class="cardsHeader">
+          <div class="panelTitle">Identified Profiles</div>
+          <div class="small"><span id="cardsCount">0</span> carduri</div>
+        </div>
+        <div id="cards" class="cards"></div>
       </div>
-    </header>
+    </div>
+  </div>
 
-    <div class="hero"></div>
-
-    <div class="search">
-      <div class="input-wrap">
-        <textarea id="q" placeholder="Ex: Cine sunt Infrastructure Engineers și unde sunt localizați?"></textarea>
-        <div class="actions">
-          <button class="primary" id="ask" type="button">
-            <span id="btn-text">Generează</span>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-          </button>
-
-          <div class="controls">
-            <div class="ctrl">
-              <span>Cards</span>
-              <select id="cards-k">
-                <option value="8">8</option>
-                <option value="16">16</option>
-                <option value="24" selected>24</option>
-                <option value="32">32</option>
-                <option value="64">64</option>
-              </select>
-            </div>
-            <label class="ctrl toggle">
-              <input type="checkbox" id="with-ai" checked />
-              <span>AI analysis</span>
-            </label>
-          </div>
-
-          <small id="status" style="color: var(--muted); font-size: 12px;">Pregătit</small>
+  <!-- Modal -->
+  <div class="modalWrap" id="modalWrap">
+    <div class="modal">
+      <div class="modalTop">
+        <div>
+          <div class="modalTitle">Live Application Architecture</div>
+          <div class="small">Vizualizare live a fluxului de la interfață la răspunsul AI</div>
+        </div>
+        <div class="right">
+          <button class="tab active" data-tab="live">Live</button>
+          <button class="tab" data-tab="latency">Latency</button>
+          <button class="tab" data-tab="cache">Cache/Store</button>
+          <button class="btn btnSecondary" id="closeModalBtn">Close</button>
+        </div>
+      </div>
+      <div class="modalBody">
+        <div id="tab_live">
+          <div id="archDiagram"></div>
+        </div>
+        <div id="tab_latency" style="display:none">
+          <div class="mono" id="latencyBox">—</div>
+        </div>
+        <div id="tab_cache" style="display:none">
+          <div class="mono" id="cacheBox">—</div>
         </div>
       </div>
     </div>
+  </div>
 
-    <div class="chips">
-      <div class="chip" data-q="Cine sunt Infrastructure Engineers? Arată-mi poza și rolul.">Infrastructure Engineers</div>
-      <div class="chip" data-q="Găsește masteranzi la UBB care lucrează la noi.">Masteranzi UBB</div>
-      <div class="chip" data-q="Cine are 'Java' sau 'Python' în headline?">Skill: Java/Python</div>
-      <div class="chip" data-q="Câți oameni sunt pe roluri de Software Engineer?">Statistici Software</div>
-    </div>
+  <script>
+    mermaid.initialize({ startOnLoad: false });
 
-    <main>
-      <div class="grid">
-        <section class="panel">
-          <div class="panel-header">
-            <div class="panel-title">AI Analysis</div>
-            <div class="pill" id="answer-hint">Pregătit pentru întrebare</div>
-          </div>
-          <div class="toolbar">
-            <button class="ghost-btn" id="copy-answer">Copy answer</button>
-          </div>
-          <div class="panel-body">
-            <div class="answer placeholder" id="answer">Răspunsul va apărea aici după ce adresezi o întrebare.</div>
-          </div>
-        </section>
+    const queryInput = document.getElementById("queryInput");
+    const generateBtn = document.getElementById("generateBtn");
+    const analysisToggle = document.getElementById("analysisToggle");
+    const cardsEl = document.getElementById("cards");
+    const cardsCountEl = document.getElementById("cardsCount");
+    const analysisTextEl = document.getElementById("analysisText");
+    const copyAnswerBtn = document.getElementById("copyAnswerBtn");
+    const cardsKEl = document.getElementById("cardsK");
 
-        <section class="panel">
-          <div class="panel-header">
-            <div class="panel-title">Identified Profiles</div>
-            <div class="pill" id="card-count">0 carduri</div>
-          </div>
-          <div class="profiles-grid" id="profiles">
-            <div class="empty">Niciun profil încărcat.</div>
-          </div>
-        </section>
-      </div>
-    </main>
+    const statusDot = document.getElementById("statusDot");
+    const statusText = document.getElementById("statusText");
 
-    <script>
-      const askBtn = document.getElementById("ask");
-      const btnText = document.getElementById("btn-text");
-      const qEl = document.getElementById("q");
-      const answerEl = document.getElementById("answer");
-      const answerHint = document.getElementById("answer-hint");
-      const profilesEl = document.getElementById("profiles");
-      const cardCountEl = document.getElementById("card-count");
-      const copyAnswerBtn = document.getElementById("copy-answer");
-      const statusEl = document.getElementById("status");
+    const metaModel = document.getElementById("metaModel");
+    const metaDocs = document.getElementById("metaDocs");
+    const metaLatency = document.getElementById("metaLatency");
+    const metaTokens = document.getElementById("metaTokens");
 
-      const metaModel = document.getElementById("meta-model");
-      const metaDocs = document.getElementById("meta-docs");
-      const metaTime = document.getElementById("meta-time");
-      const metaUniq = document.getElementById("meta-uniq");
+    const viewArchBtn = document.getElementById("viewArchBtn");
+    const modalWrap = document.getElementById("modalWrap");
+    const closeModalBtn = document.getElementById("closeModalBtn");
+    const archDiagramEl = document.getElementById("archDiagram");
+    const latencyBox = document.getElementById("latencyBox");
+    const cacheBox = document.getElementById("cacheBox");
 
-      const cardsKEl = document.getElementById("cards-k");
-      const withAiEl = document.getElementById("with-ai");
+    let lastAnswer = "";
+    let lastArch = null;
+    let lastRagMeta = null;
 
-      let lastAnswerRaw = "";
-      let abortController = null;
+    function setBusy(isBusy){
+      statusDot.classList.remove("ok","busy");
+      statusDot.classList.add(isBusy ? "busy" : "ok");
+      statusText.textContent = isBusy ? "Rulează..." : "Pregătit";
+      generateBtn.disabled = isBusy;
+    }
 
-      const fallbackAvatar = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
-        <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'>
-          <defs>
-            <linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
-              <stop stop-color='#3b82f6' offset='0%'/>
-              <stop stop-color='#06b6d4' offset='100%'/>
-            </linearGradient>
-          </defs>
-          <rect width='64' height='64' rx='16' fill='url(#g)' />
-          <circle cx='32' cy='28' r='14' fill='rgba(255,255,255,0.35)' />
-          <rect x='14' y='44' width='36' height='14' rx='7' fill='rgba(255,255,255,0.35)' />
-        </svg>
-      `)}`;
+    function esc(s){
+      return (s || "").toString()
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;");
+    }
 
-      function escapeHtml(str = "") {
-        return String(str)
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;")
-          .replace(/'/g, "&#39;");
-      }
+    function renderCards(sources){
+      cardsEl.innerHTML = "";
+      cardsCountEl.textContent = sources.length;
 
-      function normalizeLinkedIn(url = "") {
-        const clean = url.trim().split(/[?#]/)[0].replace(/\/$/, "");
-        try {
-          const parsed = new URL(clean.toLowerCase());
-          const host = parsed.hostname.endsWith("linkedin.com")
-            ? "linkedin.com"
-            : parsed.hostname;
-          const path = parsed.pathname.startsWith("/in/")
-            ? parsed.pathname
-            : `/in/${parsed.pathname.replace(/^\//, "")}`;
-          return `https://${host}${path.replace(/\/$/, "")}`;
-        } catch (e) {
-          return clean.toLowerCase();
-        }
-      }
+      for(const s of sources){
+        const name = s.full_name || "—";
+        const role = s.job_title || "";
+        const headline = s.headline || "";
+        const loc = s.location || "";
+        const date = s.job_date_range || "";
+        const school = s.school || "";
+        const degree = s.school_degree || "";
 
-      function canonicalVmid(vmid) {
-        if (!vmid) return "";
-        return String(vmid).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-      }
+        const tags = [];
+        if (role) tags.push(role);
+        if ((s.job_title_2||"").trim()) tags.push(s.job_title_2);
+        if ((s.school_degree||"").trim()) tags.push(s.school_degree);
 
-      function sourceKey(s) {
-        const vmid = canonicalVmid(s.vmid);
-        const profile = normalizeLinkedIn(s.profile_url || "");
-        const name = (s.full_name || "").trim().toLowerCase();
-        const sourceId = (s.source_id || "").trim().toLowerCase();
-        return vmid || profile || name || sourceId || JSON.stringify(s);
-      }
+        const avatarHtml = s.profile_image_url
+          ? `<div class="avatar"><img src="${esc(s.profile_image_url)}" alt=""></div>`
+          : `<div class="avatar"></div>`;
 
-      function completenessScore(s) {
-        let score = 0;
-        const weighted = {
-          profile_image_url: 3,
-          profile_url: 2,
-          headline: 2,
-          job_title: 2,
-          location: 2,
-          job_title_2: 1,
-          school: 1,
-          school_2: 1,
-        };
-        for (const [k, weight] of Object.entries(weighted)) {
-          if (s[k]) score += weight;
-        }
-        score += Object.values(s).filter((v) => v !== null && v !== "" && v !== undefined).length;
-        return score;
-      }
+        const tagHtml = tags.slice(0,3).map(t => `<span class="tag">${esc(t)}</span>`).join("");
 
-      function mergeSources(a, b) {
-        const pickBase = completenessScore(b) > completenessScore(a) ? [b, a] : [a, b];
-        const [base, secondary] = pickBase.map((x) => ({ ...x }));
-        for (const [k, v] of Object.entries(secondary)) {
-          if (base[k] === undefined || base[k] === null || base[k] === "") base[k] = v;
-        }
-        return base;
-      }
-
-      function dedupeSources(sources) {
-        const map = new Map();
-        for (const s of sources || []) {
-          const key = sourceKey(s);
-          if (!key) continue;
-          if (!map.has(key)) map.set(key, s);
-          else map.set(key, mergeSources(map.get(key), s));
-        }
-        return Array.from(map.values());
-      }
-
-      async function copyToClipboard(text) {
-        try {
-          await navigator.clipboard.writeText(text);
-        } catch (e) {
-          const ta = document.createElement("textarea");
-          ta.value = text;
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand("copy");
-          document.body.removeChild(ta);
-        }
-      }
-
-      function formatAnswer(raw) {
-        return escapeHtml(raw || "").replace(/\n/g, "<br>");
-      }
-
-      function getInitials(name = "") {
-        return name
-          .split(" ")
-          .filter(Boolean)
-          .map((n) => n[0])
-          .join("")
-          .substring(0, 2)
-          .toUpperCase() || "?";
-      }
-
-      function resolveAvatarSrc(s) {
-        const img = (s.profile_image_url || "").trim();
-        if (!img) return fallbackAvatar;
-        const linkedinImg = img.includes("media.licdn.com");
-        if (linkedinImg) {
-          const proxied = `https://images.weserv.nl/?url=${encodeURIComponent(img.replace(/^https?:\/\//, ""))}&w=320&h=320&fit=cover`;
-          return proxied;
-        }
-        return escapeHtml(img);
-      }
-
-      function buildCard(s) {
-        const avatar = resolveAvatarSrc(s);
-        const initials = getInitials(s.full_name);
         const profileUrl = s.profile_url || "";
-        const vmid = s.vmid || "";
+        const vmid = s.vmid || s.source_id || "";
 
         const card = document.createElement("div");
         card.className = "card";
         card.innerHTML = `
-          <div class="card-top">
-            <div style="position:relative;">
-              ${avatar ? `<img class="avatar" src="${avatar}" alt="${escapeHtml(s.full_name || "profil")}" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'avatar-fallback',textContent:'${initials}'}));" />` : `<div class="avatar-fallback">${initials}</div>`}
+          ${avatarHtml}
+          <div style="flex:1">
+            <p class="cardName">${esc(name)}</p>
+
+            <div class="tagRow">${tagHtml}</div>
+
+            <div class="cardMeta">
+              ${role ? `📌 ${esc(role)}<br/>` : ""}
+              ${headline && headline !== role ? `🧠 ${esc(headline)}<br/>` : ""}
+              ${loc ? `📍 ${esc(loc)}<br/>` : ""}
+              ${date ? `🗓️ ${esc(date)}<br/>` : ""}
+              ${(school || degree) ? `🎓 ${esc(school)} ${degree ? "• " + esc(degree) : ""}` : ""}
             </div>
-            <div>
-              <h3>${escapeHtml(s.full_name || "Nume necunoscut")}</h3>
-              <p class="headline">${escapeHtml(s.headline || "")}</p>
+
+            <div class="cardBtns">
+              ${profileUrl ? `<button class="miniBtn" data-action="open" data-url="${esc(profileUrl)}">LinkedIn ↗</button>` : ""}
+              ${profileUrl ? `<button class="miniBtn" data-action="copy" data-text="${esc(profileUrl)}">Copy URL</button>` : ""}
+              ${vmid ? `<button class="miniBtn" data-action="copy" data-text="${esc(vmid)}">Copy VMID</button>` : ""}
             </div>
-          </div>
-          <div class="tags">
-            ${s.job_title ? `<span class="tag">${escapeHtml(s.job_title)}</span>` : ""}
-            ${s.job_title_2 ? `<span class="tag" style="opacity:0.8;">${escapeHtml(s.job_title_2)}</span>` : ""}
-          </div>
-          <div class="meta-row">
-            ${s.location ? `<span>📍 ${escapeHtml(s.location)}</span>` : ""}
-            ${s.job_date_range ? `<span>🗓️ ${escapeHtml(s.job_date_range)}</span>` : ""}
-            ${s.school ? `<span>🎓 ${escapeHtml([s.school, s.school_degree].filter(Boolean).join(" • "))}</span>` : ""}
-          </div>
-          <div class="card-actions">
-            ${profileUrl ? `<a class="mini-btn primary" href="${escapeHtml(profileUrl)}" target="_blank" rel="noopener noreferrer">LinkedIn ↗</a>` : '<span class="mini-btn" style="opacity:0.6; cursor:default;">No LinkedIn</span>'}
-            <button class="mini-btn" data-copy="${escapeHtml(profileUrl)}">Copy URL</button>
-            <button class="mini-btn" data-copy="${escapeHtml(vmid)}">Copy VMID</button>
           </div>
         `;
 
-        card.querySelectorAll("button[data-copy]").forEach((b) => {
-          b.addEventListener("click", async () => {
-            const val = b.getAttribute("data-copy") || "";
-            if (!val) return;
-            await copyToClipboard(val);
-            const old = b.textContent;
-            b.textContent = "Copied ✅";
-            setTimeout(() => (b.textContent = old), 1000);
-          });
+        card.addEventListener("click", (e) => {
+          const btn = e.target.closest("button");
+          if(!btn) return;
+          const action = btn.dataset.action;
+          if(action === "open"){
+            window.open(btn.dataset.url, "_blank");
+          } else if(action === "copy"){
+            navigator.clipboard.writeText(btn.dataset.text || "");
+          }
+          e.stopPropagation();
         });
 
-        return card;
+        cardsEl.appendChild(card);
+      }
+    }
+
+    function updateTopMeta(meta){
+      // keep last
+      lastRagMeta = meta;
+
+      metaModel.textContent = `Model: ${meta.llm_provider || "—"}`;
+      metaDocs.textContent = `Docs: ${meta.retrieved_docs ?? "—"} (rag)`;
+      metaLatency.textContent = `Latency: ${meta.latency_sec ?? "—"}s (R:${meta.retrieval_sec ?? "—"} L:${meta.llm_sec ?? "—"})`;
+
+      const tu = meta.token_usage || {};
+      metaTokens.textContent = `Tokens P:${tu.prompt_tokens ?? "—"} C:${tu.completion_tokens ?? "—"} T:${tu.total_tokens ?? "—"}`;
+    }
+
+    async function doSearch(query){
+      const k = parseInt(cardsKEl.value, 10) || 16;
+      const res = await fetch("/search",{
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ query, k })
+      });
+      if(!res.ok){
+        const t = await res.text();
+        throw new Error("Search failed: " + t);
+      }
+      return await res.json();
+    }
+
+    async function doAnalysis(query){
+      // IMPORTANT FIX:
+      // Send same k to /query as we used for cards,
+      // so RAG sees the same neighborhood (instead of default k=8).
+      const k = parseInt(cardsKEl.value, 10) || 16;
+
+      const res = await fetch("/query",{
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({ query, with_llm: true, k })
+      });
+
+      if(!res.ok){
+        const t = await res.text();
+        throw new Error("Query failed: " + t);
+      }
+      return await res.json();
+    }
+
+    function buildMermaid(arch){
+      // No "shadow:drop-shadow(...)" inside classDef (mermaid parse error).
+      const llm = arch?.llm_provider || "OPENAI";
+      const vdb = arch?.vectordb || "Chroma";
+      const emb = arch?.embedding_model || "text-embedding-3-large";
+
+      return `
+flowchart TD
+  subgraph Q[1. Query & API]
+    U([User Query]) --> API[FastAPI Backend]
+  end
+
+  subgraph R[2. Retrieval]
+    API --> E[Embedding Model\\n${emb}]
+    E --> VDB[(Vector DB\\n${vdb})]
+    VDB --> RC[Retrieved Chunks]
+  end
+
+  subgraph L[3. Reasoning]
+    RC --> LLM[LLM Provider\\n${llm}]
+  end
+
+  subgraph O[4. Response]
+    LLM --> A([Final Answer])
+  end
+
+  classDef node fill:#0b1736,stroke:#94a3b8,color:#e2e8f0,stroke-width:1px;
+  classDef accent fill:#0a2a52,stroke:#38bdf8,color:#e2e8f0,stroke-width:2px;
+  class U,API,RC,LLM,A node;
+  class E,VDB accent;
+      `.trim();
+    }
+
+    async function renderArchitecture(){
+      if(!lastArch){
+        archDiagramEl.innerHTML = `<div class="mono">Nu am arhitectură încă. Rulează o întrebare cu AI analysis activ.</div>`;
+        return;
       }
 
-      function setLoading(isLoading) {
-        askBtn.disabled = isLoading;
-        btnText.textContent = isLoading ? "Se generează" : "Generează";
-        statusEl.textContent = isLoading ? "Se procesează" : "Pregătit";
-        answerEl.style.opacity = isLoading ? 0.7 : 1;
-        profilesEl.style.opacity = isLoading ? 0.85 : 1;
+      // live diagram
+      const code = buildMermaid(lastArch);
+      archDiagramEl.innerHTML = `<div class="mermaid">${esc(code)}</div>`;
+      try{
+        await mermaid.run({ querySelector: ".mermaid" });
+      }catch(err){
+        archDiagramEl.innerHTML = `<div class="mono">Nu am putut desena arhitectura (eroare mermaid). Detalii: ${esc(err?.message || err)}</div>`;
       }
 
-      function renderProfiles(sources) {
-        const uniq = dedupeSources(sources || []);
-        if (uniq.length === 0) {
-          profilesEl.innerHTML = `<div class="empty">Nu au fost găsite profile relevante.</div>`;
+      // latency tab
+      if(lastRagMeta){
+        latencyBox.textContent =
+          `Latency R: ${lastRagMeta.retrieval_sec}s\n` +
+          `Latency L: ${lastRagMeta.llm_sec}s\n` +
+          `LLM: ${lastArch.llm_provider || "—"}\n` +
+          `Vector DB: ${lastArch.vectordb || "—"}\n` +
+          `Tokens P:${(lastRagMeta.token_usage||{}).prompt_tokens} C:${(lastRagMeta.token_usage||{}).completion_tokens} T:${(lastRagMeta.token_usage||{}).total_tokens}`;
+      } else {
+        latencyBox.textContent = "—";
+      }
+
+      // cache tab
+      cacheBox.textContent = JSON.stringify({ architecture: lastArch, meta: lastRagMeta }, null, 2);
+    }
+
+    function openModal(){
+      modalWrap.style.display = "flex";
+      renderArchitecture();
+    }
+    function closeModal(){
+      modalWrap.style.display = "none";
+    }
+
+    function switchTab(tabName){
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      document.querySelector(`.tab[data-tab="${tabName}"]`)?.classList.add("active");
+
+      document.getElementById("tab_live").style.display = (tabName==="live") ? "" : "none";
+      document.getElementById("tab_latency").style.display = (tabName==="latency") ? "" : "none";
+      document.getElementById("tab_cache").style.display = (tabName==="cache") ? "" : "none";
+    }
+
+    document.querySelectorAll(".tab").forEach(t=>{
+      t.addEventListener("click", ()=> switchTab(t.dataset.tab));
+    });
+
+    viewArchBtn.addEventListener("click", openModal);
+    closeModalBtn.addEventListener("click", closeModal);
+    modalWrap.addEventListener("click", (e)=> { if(e.target === modalWrap) closeModal(); });
+
+    copyAnswerBtn.addEventListener("click", ()=>{
+      navigator.clipboard.writeText(lastAnswer || "");
+    });
+
+    async function run(){
+      const query = (queryInput.value || "").trim();
+      if(!query) return;
+
+      setBusy(true);
+      analysisTextEl.textContent = "—";
+
+      try{
+        // 1) Search (cards)
+        const searchRes = await doSearch(query);
+        renderCards(searchRes.sources || []);
+
+        // 2) Analysis (LLM)
+        if(analysisToggle.checked){
+          const ragRes = await doAnalysis(query);
+
+          lastAnswer = (ragRes.answer || "").trim();
+          analysisTextEl.textContent = lastAnswer || "Modelul nu a returnat conținut text pentru această cerere (posibil refuz sau răspuns gol).";
+
+          // architecture/meta
+          lastArch = ragRes.architecture || null;
+          updateTopMeta({
+            llm_provider: (ragRes.architecture||{}).llm_provider || "OPENAI",
+            retrieved_docs: ragRes.retrieved_docs,
+            latency_sec: ragRes.latency_sec,
+            retrieval_sec: ragRes.retrieval_sec,
+            llm_sec: ragRes.llm_sec,
+            token_usage: ragRes.token_usage || {},
+          });
         } else {
-          profilesEl.innerHTML = "";
-          uniq.forEach((s) => profilesEl.appendChild(buildCard(s)));
+          analysisTextEl.textContent = "AI analysis este dezactivat.";
+          lastAnswer = "";
         }
-        cardCountEl.textContent = `${uniq.length} card${uniq.length === 1 ? "" : "uri"}`;
-        metaUniq.textContent = `Cards: ${uniq.length}`;
-        return uniq.length;
+
+      }catch(err){
+        analysisTextEl.textContent = "Eroare: " + (err?.message || err);
+      }finally{
+        setBusy(false);
       }
+    }
 
-      async function ask() {
-        const query = (qEl.value || "").trim();
-        if (!query) return;
-
-        if (abortController) abortController.abort();
-        abortController = new AbortController();
-
-        setLoading(true);
-        profilesEl.innerHTML = `<div class="empty">Caut profile...</div>`;
-        answerEl.classList.remove("placeholder");
-        answerHint.textContent = "Search → instant cards; AI analysis (optional)";
-        answerEl.innerHTML = `<span style="color: var(--muted);">AI analysis va apărea aici (dacă e activată).</span>`;
-
-        try {
-          // 1) Search first (fast)
-          await doSearch(query);
-
-          // 2) Then optional AI analysis
-          if (withAiEl.checked) {
-            answerHint.textContent = "Se generează AI analysis...";
-            statusEl.textContent = "AI running...";
-            await doAnalysis(query);
-          } else {
-            metaModel.textContent = `Model: AI OFF`;
-            statusEl.textContent = "AI disabled";
-          }
-        } catch (err) {
-          if (String(err).includes("AbortError")) {
-            answerEl.innerHTML = `<span style="color: var(--muted);">Cererea a fost anulată.</span>`;
-            statusEl.textContent = "Anulat";
-          } else {
-            answerEl.innerHTML = `<span style="color: var(--muted);">Eroare: ${escapeHtml(err.message || String(err))}</span>`;
-            statusEl.textContent = "Eroare";
-          }
-        } finally {
-          setLoading(false);
-        }
+    generateBtn.addEventListener("click", run);
+    queryInput.addEventListener("keydown", (e)=>{
+      if((e.ctrlKey || e.metaKey) && e.key === "Enter"){
+        run();
       }
+    });
 
-      askBtn.addEventListener("click", ask);
-      qEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-          e.preventDefault();
-          ask();
-        }
-      });
-
-      document.querySelectorAll(".chip").forEach((chip) => {
-        chip.addEventListener("click", () => {
-          qEl.value = chip.dataset.q || "";
-          ask();
-        });
-      });
-
-      copyAnswerBtn.addEventListener("click", async () => {
-        if (!lastAnswerRaw) return;
-        await copyToClipboard(lastAnswerRaw);
-        const old = copyAnswerBtn.textContent;
-        copyAnswerBtn.textContent = "Copied ✅";
-        setTimeout(() => (copyAnswerBtn.textContent = old), 900);
-      });
-
-      const flowchartModal = document.getElementById("flowchart-modal");
-      const viewFlowchartBtn = document.getElementById("view-flowchart");
-      const closeFlowchartBtn = document.getElementById("close-flowchart-modal");
-      const flowchartContainer = document.getElementById("flowchart-container");
-      const archMetaEl = document.getElementById("arch-meta");
-      const archFooterEl = document.getElementById("arch-footer");
-      let lastArch = null;
-      let mermaidInitialized = false;
-
-      function renderArchitectureMeta(arch, retrieval_sec, llm_sec) {
-        if (!arch) {
-          archMetaEl.innerHTML = `<div class="meta-placeholder">Arhitectura va fi afișată după prima căutare.</div>`;
-          archFooterEl.textContent = "";
-          return;
-        }
-
-        const retrieval = retrieval_sec ?? "N/A";
-        const llm = llm_sec ?? "N/A";
-        const tokenUsage = arch.token_usage || {};
-        const promptTokens = tokenUsage.prompt_tokens ?? "—";
-        const completionTokens = tokenUsage.completion_tokens ?? "—";
-        const totalTokens = tokenUsage.total_tokens ?? "—";
-        const promptChars = arch.prompt_characters ?? "—";
-
-        archMetaEl.innerHTML = `
-          <div class="meta-block">
-            <div class="meta-label">LLM Provider</div>
-            <div class="meta-value">${escapeHtml(arch.llm_provider || "-")}</div>
-            <div class="meta-hint">${llm}s generare</div>
-          </div>
-          <div class="meta-block">
-            <div class="meta-label">Vector DB</div>
-            <div class="meta-value">${escapeHtml(arch.vectordb || "-")}</div>
-            <div class="meta-hint">${retrieval}s retrieval</div>
-          </div>
-          <div class="meta-block">
-            <div class="meta-label">Embeddings</div>
-            <div class="meta-value">${escapeHtml(arch.embedding_model || "-")}</div>
-            <div class="meta-hint">index live</div>
-          </div>
-          <div class="meta-block">
-            <div class="meta-label">Prompt tokens</div>
-            <div class="meta-value">${promptTokens}</div>
-            <div class="meta-hint">Input chars: ${promptChars}</div>
-          </div>
-          <div class="meta-block">
-            <div class="meta-label">Completion tokens</div>
-            <div class="meta-value">${completionTokens}</div>
-            <div class="meta-hint">Total: ${totalTokens}</div>
-          </div>
-        `;
-
-        archFooterEl.innerHTML = `
-          <span class="footer-pill">Latency R: ${retrieval}s</span>
-          <span class="footer-pill">Latency L: ${llm}s</span>
-          <span class="footer-pill">LLM: ${escapeHtml(arch.llm_provider || "-")}</span>
-          <span class="footer-pill">Vector DB: ${escapeHtml(arch.vectordb || "-")}</span>
-          <span class="footer-pill">Tokens P:${promptTokens} C:${completionTokens} T:${totalTokens}</span>
-        `;
-      }
-
-      async function renderFlowchart(arch, retrieval_sec, llm_sec) {
-        if (!arch) {
-          flowchartContainer.innerHTML = "Arhitectura va fi afișată după prima căutare.";
-          renderArchitectureMeta(null);
-          return;
-        }
-
-        const tokenUsage = arch.token_usage || {};
-        const promptTokens = tokenUsage.prompt_tokens ?? "—";
-        const completionTokens = tokenUsage.completion_tokens ?? "—";
-        const totalTokens = tokenUsage.total_tokens ?? "—";
-        const tokenLabel = `P:${promptTokens} C:${completionTokens} T:${totalTokens}`;
-
-        if (!mermaidInitialized) {
-          mermaid.initialize({
-            startOnLoad: false,
-            theme: "dark",
-            themeVariables: {
-              primaryColor: "#0ea5e9",
-              secondaryColor: "#1e293b",
-              tertiaryColor: "#111827",
-              textColor: "#e2e8f0",
-              lineColor: "#38bdf8",
-              primaryBorderColor: "#38bdf8"
-            }
-          });
-          mermaidInitialized = true;
-        }
-
-        renderArchitectureMeta(arch, retrieval_sec, llm_sec);
-
-        const definition = `
-          graph TD
-            classDef source fill:#0ea5e9,stroke:#38bdf8,color:#e2e8f0,stroke-width:2px,shadow:drop-shadow(0px 8px 16px rgba(56,189,248,0.25));
-            classDef process fill:#1e293b,stroke:#38bdf8,color:#e2e8f0;
-            classDef cache fill:#f59e0b,stroke:#fbbf24,color:#0b1021,stroke-width:2px;
-            classDef llm fill:#8b5cf6,stroke:#c4b5fd,color:#f8fafc,stroke-width:2px;
-            classDef output fill:#10b981,stroke:#6ee7b7,color:#0f172a,stroke-width:2px;
-
-            Q([🧑‍💻 User Query]):::source --> API([FastAPI Backend]):::process
-            API --> EMB{{Embedding Model\\n${arch.embedding_model}}}:::process
-            EMB --> VDB[(Vector DB\\n${arch.vectordb})]:::cache
-            VDB -- Retrieval ${retrieval_sec ?? "N/A"}s --> DOCS([Retrieved Chunks]):::process
-            DOCS --> LLM{{LLM Provider\\n${arch.llm_provider}}}:::llm
-            LLM -- Generate ${llm_sec ?? "N/A"}s\\n${tokenLabel} --> RESP([Final Answer]):::output
-
-            subgraph "1. Query & API"
-              Q --> API
-            end
-            subgraph "2. Retrieval"
-              EMB
-              VDB
-              DOCS
-            end
-            subgraph "3. Reasoning"
-              LLM
-            end
-            subgraph "4. Response"
-              RESP
-            end
-        `;
-
-        const safeDefinition = definition.trim();
-
-        try {
-          const { svg } = await mermaid.render(`mermaid-${Date.now()}`, safeDefinition);
-          flowchartContainer.innerHTML = svg;
-        } catch (err) {
-          console.error("Mermaid render error", err);
-          flowchartContainer.innerHTML = `<div class="meta-placeholder">Nu am putut desena arhitectura (eroare mermaid). Încearcă din nou după o căutare nouă. Detalii: ${escapeHtml(err?.message || String(err))}</div>`;
-        }
-      }
-
-      viewFlowchartBtn.addEventListener("click", () => {
-        flowchartModal.classList.add("visible");
-        renderFlowchart(lastArch?.arch, lastArch?.retrieval_sec, lastArch?.llm_sec);
-      });
-
-      closeFlowchartBtn.addEventListener("click", () => {
-        flowchartModal.classList.remove("visible");
-      });
-
-      flowchartModal.addEventListener("click", (e) => {
-        if (e.target === flowchartModal) {
-          flowchartModal.classList.remove("visible");
-        }
-      });
-
-      function updateLastArch(data) {
-        if (data?.architecture) {
-          lastArch = {
-            arch: data.architecture,
-            retrieval_sec: data.retrieval_sec ?? 'N/A',
-            llm_sec: data.llm_sec ?? 'N/A'
-          };
-        }
-      }
-
-      async function doSearch(query) {
-        const k = parseInt(cardsKEl.value || "24", 10);
-        const started = performance.now();
-        const res = await fetch(`/search?q=${encodeURIComponent(query)}&k=${k}`);
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const elapsed = ((performance.now() - started) / 1000).toFixed(2);
-
-        renderProfiles(data.sources || []);
-        metaDocs.textContent = `Docs: ${data.retrieved_docs ?? "—"} (search)`;
-        metaTime.textContent = `Latency: ${data.latency_sec ?? elapsed}s (search)`;
-        metaModel.textContent = `Model: —`;
-        statusEl.textContent = "Search complete";
-        updateLastArch(data);
-        return data;
-      }
-
-      async function doAnalysis(query) {
-        const started = performance.now();
-        const res = await fetch("/query", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query, with_llm: true }),
-          signal: abortController.signal,
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const elapsed = ((performance.now() - started) / 1000).toFixed(2);
-        const answerRaw = (data.answer || "").trim();
-        const answerToShow =
-          answerRaw ||
-          "Nu am primit niciun răspuns de la model. Verifică dacă AI analysis este activ și cheia API este configurată.";
-
-        lastAnswerRaw = answerToShow;
-        answerEl.innerHTML = formatAnswer(answerToShow);
-
-        const r = data.retrieval_sec ?? "—";
-        const l = data.llm_sec ?? "—";
-        const tokenUsage = data.token_usage || {};
-        const promptTokens = tokenUsage.prompt_tokens ?? "—";
-        const completionTokens = tokenUsage.completion_tokens ?? "—";
-        const totalTokens = tokenUsage.total_tokens ?? "—";
-        metaModel.textContent = `Model: ${data.llm_used || "—"}`;
-        metaDocs.textContent = `Docs: ${data.retrieved_docs ?? "—"} (rag)`;
-        metaTime.textContent = `Latency: ${data.latency_sec ?? elapsed}s (R:${r}s L:${l}s) | Tokens P:${promptTokens} C:${completionTokens} T:${totalTokens}`;
-
-        answerHint.textContent = answerRaw
-          ? `AI analysis: ${data.latency_sec ?? elapsed}s`
-          : "AI analysis nu a putut genera un răspuns.";
-        statusEl.textContent = answerRaw ? "AI complete" : "AI fără răspuns";
-        updateLastArch(data);
-        return data;
-      }
-    </script>
-  </body>
+    // initial
+    setBusy(false);
+  </script>
+</body>
 </html>

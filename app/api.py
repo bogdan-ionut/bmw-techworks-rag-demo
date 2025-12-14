@@ -1,539 +1,426 @@
-# app/api.py
-
-import json
-import logging
 import os
 import time
+import json
+import hashlib
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlparse
+from typing import Any, Dict, List, Optional
 
-import boto3
-from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
-from dotenv import load_dotenv
-from fastapi import FastAPI, Query as FastQuery
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+# --- Load .env explicitly ---
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
+
+APP_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = APP_DIR.parent
+DOTENV_PATH = PROJECT_ROOT / ".env"
+
+if load_dotenv:
+    if DOTENV_PATH.exists():
+        load_dotenv(dotenv_path=DOTENV_PATH)
+    else:
+        load_dotenv()
+
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_anthropic import ChatAnthropic
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage, HumanMessage
 
-load_dotenv()
 
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    format="[%(levelname)s] %(asctime)s %(name)s - %(message)s",
-)
-logger = logging.getLogger("api")
+STATIC_DIR = APP_DIR / "static"
+INDEX_HTML = STATIC_DIR / "index.html"
 
-# -----------------------------
-# Paths / Static UI
-# -----------------------------
-BASE_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = BASE_DIR.parent
-STATIC_DIR = BASE_DIR / "static"
+CHROMA_DIR = os.getenv("CHROMA_DIR", str(PROJECT_ROOT / "chroma_db"))
+CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "profiles")
 
-app = FastAPI(title="BMW TechWorks RAG Demo")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
+
+SEARCH_K_DEFAULT = int(os.getenv("SEARCH_K_DEFAULT", "16"))
+RAG_K_DEFAULT = int(os.getenv("RAG_K_DEFAULT", "8"))
+CONTEXT_MAX_PEOPLE = int(os.getenv("CONTEXT_MAX_PEOPLE", "8"))
+
+SYSTEM_PROMPT = """Ești un asistent de analiză pentru o listă de profile (talent intelligence).
+Reguli:
+- Răspunde DOAR în limba română.
+- NU lista nume complete sau URL-uri de profil în textul răspunsului (UI-ul afișează deja cardurile).
+- Poți face referire la exemple anonimizate: „un profil cu rol GenAI Engineer…”.
+- Dacă contextul nu conține suficiente informații, spune clar ce lipsește.
+- Fii scurt, clar și util (max ~8-12 rânduri)."""
+
+USER_PROMPT_TEMPLATE = """Întrebare: {query}
+
+Context (profile-uri relevante, anonimizate):
+{context}
+
+Te rog:
+1) Răspunde direct la întrebare.
+2) Spune DE CE profile-urile din context se potrivesc (2-4 criterii).
+3) Dă 2-3 exemple concrete din context (fără nume / fără URL), doar rol + 1-2 detalii relevante (ex: keywords/skills/locație/perioadă)."""
+
+app = FastAPI(title="BMWTechWorks Talent Intelligence")
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
-@app.get("/", include_in_schema=False)
-def serve_homepage():
-    index_file = STATIC_DIR / "index.html"
-    if index_file.exists():
-        return FileResponse(str(index_file))
-    return {"message": "Static frontend not found. Create app/static/index.html first."}
+class SearchBody(BaseModel):
+    query: str
+    k: int = Field(default=SEARCH_K_DEFAULT, ge=1, le=200)
 
 
-@app.get("/health", include_in_schema=False)
-def health():
-    return {"ok": True}
+class QueryBody(BaseModel):
+    query: str
+    with_llm: bool = True
+    k: Optional[int] = Field(default=None, ge=1, le=200)
 
 
-# -----------------------------
-# Secrets: AWS Secrets Manager + .env fallback
-# -----------------------------
-def load_secrets() -> Dict[str, str]:
-    secret_name = os.getenv("AWS_SECRET_NAME")
-    region = os.getenv("AWS_REGION", "eu-north-1")
+_embeddings: Optional[OpenAIEmbeddings] = None
+_vectordb: Optional[Chroma] = None
+_ANALYSIS_CACHE: Dict[str, Dict[str, Any]] = {}
 
-    if not secret_name:
-        logger.info("AWS_SECRET_NAME not set – using only .env for API keys.")
-        return {
-            "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", ""),
-            "ANTHROPIC_API_KEY": os.getenv("ANTHROPIC_API_KEY", ""),
-            "GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY", ""),
-        }
 
+def _sha256(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _safe_str(x: Any) -> str:
     try:
-        session = boto3.session.Session(region_name=region)
-        client = session.client("secretsmanager")
-        resp = client.get_secret_value(SecretId=secret_name)
-        secret_str = resp.get("SecretString") or "{}"
-        secrets = json.loads(secret_str)
-        logger.info("Loaded secrets from AWS Secrets Manager: %s", secret_name)
-    except (NoCredentialsError, BotoCoreError, ClientError) as e:
-        logger.warning("Cannot read AWS secret (%s). Falling back to .env", e)
-        secrets = {}
-
-    return {
-        "OPENAI_API_KEY": secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY", ""),
-        "ANTHROPIC_API_KEY": secrets.get("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY", ""),
-        "GOOGLE_API_KEY": secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY", ""),
-    }
-
-
-secrets = load_secrets()
-
-# -----------------------------
-# Config
-# -----------------------------
-RAG_K_DEFAULT = int(os.getenv("RAG_K", "8"))                 # used for LLM analysis
-SEARCH_K_DEFAULT = int(os.getenv("SEARCH_K_DEFAULT", "24"))  # used for cards
-CONTEXT_MAX_PEOPLE = int(os.getenv("CONTEXT_MAX_PEOPLE", "8"))
-SKIP_LLM_FOR_SHORT = os.getenv("SKIP_LLM_FOR_SHORT", "0") == "1"
-
-TEMPERATURE = float(os.getenv("TEMPERATURE", "0.1"))
-MAX_TOKENS = int(os.getenv("MAX_TOKENS", "220"))
-
-# Cache (nice for demo)
-CACHE_TTL_SEC = int(os.getenv("CACHE_TTL_SEC", "600"))
-_CACHE: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
-
-
-def _cache_get(key: Tuple[Any, ...]) -> Optional[Dict[str, Any]]:
-    entry = _CACHE.get(key)
-    if not entry:
-        return None
-    if (time.time() - entry["t"]) > CACHE_TTL_SEC:
-        _CACHE.pop(key, None)
-        return None
-    return entry["v"]
-
-
-def _cache_set(key: Tuple[Any, ...], value: Dict[str, Any]) -> None:
-    _CACHE[key] = {"t": time.time(), "v": value}
-
-
-def _extract_token_usage(resp: Any) -> Dict[str, int]:
-    usage: Dict[str, int] = {}
-
-    metadata = getattr(resp, "usage_metadata", None) or {}
-    if not metadata:
-        raw_meta = getattr(resp, "response_metadata", {}) or {}
-        metadata = raw_meta.get("token_usage") or raw_meta.get("usage", {})
-
-    if metadata:
-        usage = {
-            "prompt_tokens": int(metadata.get("prompt_tokens") or metadata.get("input_tokens") or 0),
-            "completion_tokens": int(metadata.get("completion_tokens") or metadata.get("output_tokens") or 0),
-        }
-        total = metadata.get("total_tokens")
-        if total is None:
-            total = (usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0))
-        usage["total_tokens"] = int(total)
-
-    return usage
-
-
-def _log_token_usage(stage: str, token_usage: Dict[str, int], query: str) -> None:
-    logger.info(
-        "%s tokens - prompt: %s, completion: %s, total: %s (query_len=%s chars)",
-        stage,
-        token_usage.get("prompt_tokens", 0),
-        token_usage.get("completion_tokens", 0),
-        token_usage.get("total_tokens", 0),
-        len(query),
-    )
-
-
-def _build_architecture_meta(token_usage: Dict[str, int], context_text: str, llm_provider: str) -> Dict[str, Any]:
-    return {
-        "embedding_model": EMBED_MODEL,
-        "vectordb": "Chroma",
-        "llm_provider": llm_provider,
-        "token_usage": token_usage or None,
-        "prompt_characters": len(context_text),
-    }
-
-
-# -----------------------------
-# Vector store
-# -----------------------------
-EMBED_MODEL = os.getenv("EMBED_MODEL", "text-embedding-3-large")
-
-embeddings = OpenAIEmbeddings(
-    api_key=secrets.get("OPENAI_API_KEY", ""),
-    model=EMBED_MODEL,
-)
-
-VECTORDIR = PROJECT_DIR / "chroma_db"
-
-vectordb = Chroma(
-    embedding_function=embeddings,
-    persist_directory=str(VECTORDIR),
-)
-
-# -----------------------------
-# LLM provider switch
-# -----------------------------
-provider = os.getenv("LLM_PROVIDER", "OPENAI").upper()
-
-if provider == "OPENAI":
-    llm = ChatOpenAI(
-        api_key=secrets.get("OPENAI_API_KEY", ""),
-        model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-        temperature=TEMPERATURE,
-        max_tokens=MAX_TOKENS,
-    )
-elif provider == "ANTHROPIC":
-    llm = ChatAnthropic(
-        api_key=secrets.get("ANTHROPIC_API_KEY", ""),
-        model=os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
-        temperature=TEMPERATURE,
-    )
-elif provider == "GEMINI":
-    llm = ChatGoogleGenerativeAI(
-        api_key=secrets.get("GOOGLE_API_KEY", ""),
-        model=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
-        temperature=TEMPERATURE,
-    )
-else:
-    raise ValueError(f"Invalid LLM_PROVIDER: {provider}")
-
-# -----------------------------
-# Prompt (short + strict)
-# -----------------------------
-SYSTEM_PROMPT = """You are an AI assistant that answers questions about BMW TechWorks Romania employees.
-
-Rules:
-- Use ONLY the provided context records.
-- Do NOT output long lists of employees (the UI shows employee cards).
-- Keep the answer concise: <= 120 words unless the user explicitly asks for details.
-- If you don't know from context, say you don't know.
-"""
-
-USER_PROMPT = """Question: {question}
-
-Context records:
-{context}
-
-Answer in Romanian, clear and concise. Focus on explaining *why* the suggested people match the query (rol, tehnologie, seniority, locație). Include 2-3 exemple concrete din context (nume + rol) pentru a justifica selecția și menționează rapid criteriile cheie (stack, experiență relevantă). Evită liste lungi; oferă un rezumat scurt și util.
-"""
-
-# -----------------------------
-# Helpers: normalization + dedupe
-# -----------------------------
-def _normalize_linkedin(url: Optional[str]) -> str:
-    if not url:
-        return ""
-    clean = str(url).strip().split("?")[0].split("#")[0].rstrip("/")
-    try:
-        parsed = urlparse(clean)
-        host = (parsed.netloc or "").lower()
-        if host.endswith("linkedin.com"):
-            host = "linkedin.com"
-        path = parsed.path or ""
-        if path.startswith("/in/"):
-            slug = path[len("/in/") :]
-        else:
-            slug = path.lstrip("/")
-        slug = slug.rstrip("/").lower()
-        if not slug:
-            return ""
-        return f"https://{host}/in/{slug}"
+        return str(x)
     except Exception:
-        return clean.lower()
+        return repr(x)
 
 
-def _canonical_vmid(vmid: Optional[str]) -> str:
-    if not vmid:
-        return ""
-    raw = str(vmid).strip().lower()
-    return "".join(ch for ch in raw if ch.isalnum())
+def _require_openai_key() -> str:
+    key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not key:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "OPENAI_API_KEY lipsește. "
+                "Asigură-te că ai un fișier .env în root și ai instalat python-dotenv "
+                "(pip install python-dotenv), sau setează variabila de mediu OPENAI_API_KEY."
+            ),
+        )
+    return key
 
 
-def _source_key(md: Dict[str, Any]) -> str:
-    vmid = _canonical_vmid(md.get("vmid"))
-    profile = _normalize_linkedin(md.get("profile_url"))
-    full_name = str(md.get("full_name") or "").strip().lower()
-    fallback_id = str(md.get("id") or "").strip().lower()
-    return vmid or profile or full_name or fallback_id
+def _get_vectordb() -> Chroma:
+    global _embeddings, _vectordb
+    _require_openai_key()
+
+    if _embeddings is None:
+        _embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL)
+
+    if _vectordb is None:
+        _vectordb = Chroma(
+            collection_name=CHROMA_COLLECTION,
+            persist_directory=CHROMA_DIR,
+            embedding_function=_embeddings,
+        )
+
+    return _vectordb
 
 
-def _completeness_score(rec: Dict[str, Any]) -> int:
-    score = 0
-    for k, weight in {
-        "profile_image_url": 3,
-        "profile_url": 2,
-        "headline": 2,
-        "job_title": 2,
-        "job_date_range": 2,
-        "location": 2,
-        "job_title_2": 1,
-        "job_date_range_2": 1,
-        "school": 1,
-        "school_2": 1,
-    }.items():
-        if rec.get(k):
-            score += weight
-    score += sum(1 for v in rec.values() if v not in (None, "", []))
-    return score
+def _doc_to_source(doc: Any) -> Dict[str, Any]:
+    md = getattr(doc, "metadata", {}) or {}
+    return {
+        "source_id": md.get("source_id") or md.get("vmid") or md.get("id") or "",
+        "vmid": md.get("vmid") or md.get("source_id") or "",
+        "full_name": md.get("full_name") or md.get("name") or "",
+        "profile_url": md.get("profile_url") or md.get("url") or "",
+        "profile_image_url": md.get("profile_image_url") or md.get("image") or "",
+        "headline": md.get("headline") or "",
+        "location": md.get("location") or "",
+        "job_title": md.get("job_title") or "",
+        "job_date_range": md.get("job_date_range") or "",
+        "job_title_2": md.get("job_title_2") or "",
+        "job_date_range_2": md.get("job_date_range_2") or "",
+        "school": md.get("school") or "",
+        "school_degree": md.get("school_degree") or "",
+        "school_date_range": md.get("school_date_range") or "",
+        "school_2": md.get("school_2") or "",
+        "school_degree_2": md.get("school_degree_2") or "",
+        "school_date_range_2": md.get("school_date_range_2") or "",
+    }
 
 
-def _merge_prefer_richer(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
-    left = _completeness_score(existing)
-    right = _completeness_score(incoming)
-    base, secondary = (incoming.copy(), existing) if right > left else (existing.copy(), incoming)
-    for k, v in secondary.items():
-        if base.get(k) in (None, "", []):
-            base[k] = v
-    return base
-
-
-def _docs_to_sources(docs: List[Document]) -> List[Dict[str, Any]]:
-    unique: Dict[str, Dict[str, Any]] = {}
+def _docs_to_sources(docs: List[Any]) -> List[Dict[str, Any]]:
+    seen: Dict[str, Dict[str, Any]] = {}
     for d in docs:
-        md = d.metadata or {}
-
-        s = {
-            "source_id": md.get("id"),
-            "vmid": md.get("vmid"),
-            "full_name": md.get("full_name"),
-            "profile_url": md.get("profile_url"),
-            "profile_image_url": md.get("profile_image_url"),
-            "headline": md.get("headline"),
-            "location": md.get("location"),
-            "job_title": md.get("job_title"),
-            "job_date_range": md.get("job_date_range"),
-            "job_title_2": md.get("job_title_2"),
-            "job_date_range_2": md.get("job_date_range_2"),
-            "school": md.get("school"),
-            "school_degree": md.get("school_degree"),
-            "school_date_range": md.get("school_date_range"),
-            "school_2": md.get("school_2"),
-            "school_degree_2": md.get("school_degree_2"),
-            "school_date_range_2": md.get("school_date_range_2"),
-        }
-
-        key = _source_key(md)
-        if not key:
-            continue
-        if key not in unique:
-            unique[key] = s
-        else:
-            unique[key] = _merge_prefer_richer(unique[key], s)
-
-    return list(unique.values())
+        s = _doc_to_source(d)
+        sid = s.get("source_id") or s.get("vmid") or _safe_str(hash(d))
+        if sid and sid not in seen:
+            seen[sid] = s
+    return list(seen.values())
 
 
-def _sources_to_compact_context(sources: List[Dict[str, Any]], limit: int) -> str:
-    """
-    IMPORTANT: context compact (metadata only) => prompt mult mai mic => LLM mult mai rapid.
-    """
+def _compact_context(sources: List[Dict[str, Any]], max_people: int) -> str:
     lines: List[str] = []
-    for s in sources[: max(1, limit)]:
-        lines.append(f"Employee: {s.get('full_name') or 'N/A'}")
-        if s.get("headline"):
-            lines.append(f"Headline: {s['headline']}")
-        if s.get("job_title"):
-            role = s["job_title"]
-            period = s.get("job_date_range") or ""
-            lines.append(f"Current role: {role}" + (f" ({period})" if period else ""))
-        if s.get("job_title_2"):
-            role2 = s["job_title_2"]
-            period2 = s.get("job_date_range_2") or ""
-            lines.append(f"Previous role: {role2}" + (f" ({period2})" if period2 else ""))
-        if s.get("location"):
-            lines.append(f"Location: {s['location']}")
-        edu1 = " – ".join([x for x in [s.get("school"), s.get("school_degree"), s.get("school_date_range")] if x])
-        edu2 = " – ".join([x for x in [s.get("school_2"), s.get("school_degree_2"), s.get("school_date_range_2")] if x])
-        if edu1:
-            lines.append(f"Education 1: {edu1}")
-        if edu2:
-            lines.append(f"Education 2: {edu2}")
-        if s.get("profile_url"):
-            lines.append(f"LinkedIn: {s['profile_url']}")
-        if s.get("vmid"):
-            lines.append(f"VMID: {s['vmid']}")
-        lines.append("-----")
+    for i, s in enumerate(sources[:max_people], start=1):
+        role = (s.get("job_title") or "").strip()
+        headline = (s.get("headline") or "").strip()
+        loc = (s.get("location") or "").strip()
+
+        extra = []
+        if role:
+            extra.append(f"rol: {role}")
+        if headline and headline != role:
+            extra.append(f"headline: {headline}")
+        if loc:
+            extra.append(f"locație: {loc}")
+
+        if not extra:
+            extra.append("profil fără câmpuri standardizate (metadata incomplet)")
+        lines.append(f"- Profil {i}: " + " | ".join(extra))
+
     return "\n".join(lines).strip()
 
 
-def _looks_like_short_search(query: str) -> bool:
-    q = query.strip()
-    if len(q) <= 22 and "?" not in q:
-        return True
-    return False
+def _extract_refusal(resp: Any) -> Optional[str]:
+    add = getattr(resp, "additional_kwargs", None) or {}
+    meta = getattr(resp, "response_metadata", None) or {}
+
+    refusal = add.get("refusal") or add.get("refusal_reason")
+    if refusal:
+        return _safe_str(refusal).strip() or None
+
+    msg = meta.get("message") if isinstance(meta, dict) else None
+    if isinstance(msg, dict):
+        r2 = msg.get("refusal")
+        if r2:
+            return _safe_str(r2).strip() or None
+
+    r3 = meta.get("refusal") if isinstance(meta, dict) else None
+    if r3:
+        return _safe_str(r3).strip() or None
+
+    return None
 
 
-# -----------------------------
-# Core: SEARCH (fast cards)
-# -----------------------------
-def run_search(query: str, k: int) -> Dict[str, Any]:
-    start = time.time()
+def _extract_llm_text(resp: Any) -> str:
+    content = getattr(resp, "content", None)
 
-    logger.info("[SEARCH] query=%r k=%s", query, k)
+    if isinstance(content, str):
+        t = content.strip()
+        if t:
+            return t
 
-    cache_key = ("search", query.strip().lower(), int(k), EMBED_MODEL)
-    cached = _cache_get(cache_key)
-    if cached:
-        logger.info("[SEARCH] cache hit (k=%s, embed=%s)", k, EMBED_MODEL)
-        return cached
+    if isinstance(content, list):
+        parts: List[str] = []
+        for p in content:
+            if isinstance(p, str):
+                parts.append(p)
+            elif isinstance(p, dict):
+                if p.get("type") == "text" and p.get("text"):
+                    parts.append(_safe_str(p["text"]))
+                elif p.get("text"):
+                    parts.append(_safe_str(p["text"]))
+        t = "\n".join([x.strip() for x in parts if x and x.strip()]).strip()
+        if t:
+            return t
 
-    t0 = time.time()
-    docs = vectordb.similarity_search(query, k=k)
-    t1 = time.time()
+    refusal = _extract_refusal(resp)
+    if refusal:
+        return f"⚠️ Modelul a refuzat să răspundă: {refusal}"
 
-    sources = _docs_to_sources(docs)
+    s = _safe_str(resp).strip()
+    if s in ("AIMessage(content='')", "AIMessage(content=\"\")"):
+        return ""
+    return s
 
-    logger.info(
-        "[SEARCH] retrieved_docs=%s unique_sources=%s retrieval=%.2fs latency=%.2fs",
-        len(docs),
-        len(sources),
-        t1 - t0,
-        time.time() - start,
-    )
 
-    result = {
-        "sources": sources,
-        "retrieved_docs": len(docs),
-        "unique_sources": len(sources),
-        "latency_sec": round(time.time() - start, 2),
-        "retrieval_sec": round(t1 - t0, 2),
-        "k": k,
-        "architecture": {
-            "embedding_model": EMBED_MODEL,
-            "vectordb": "Chroma",
-            "llm_provider": provider,
-            "token_usage": None,
-            "prompt_characters": len(query),
-        }
+def _make_llm() -> ChatOpenAI:
+    _require_openai_key()
+    return ChatOpenAI(model=OPENAI_MODEL, temperature=0.2)
+
+
+@app.get("/", response_class=HTMLResponse)
+def home():
+    if not INDEX_HTML.exists():
+        return HTMLResponse("<h3>Missing static/index.html</h3>", status_code=500)
+    return HTMLResponse(INDEX_HTML.read_text(encoding="utf-8"))
+
+
+@app.get("/health")
+def health():
+    return {
+        "ok": True,
+        "dotenv_loaded": bool(load_dotenv),
+        "dotenv_path": str(DOTENV_PATH),
+        "dotenv_exists": DOTENV_PATH.exists(),
+        "has_openai_key": bool(os.getenv("OPENAI_API_KEY", "").strip()),
+        "model": OPENAI_MODEL,
+        "embedding_model": EMBEDDING_MODEL,
+        "chroma_dir": CHROMA_DIR,
+        "chroma_collection": CHROMA_COLLECTION,
     }
-    _cache_set(cache_key, result)
-    return result
 
 
-@app.get("/search")
-def search_endpoint(
-    q: str = FastQuery(..., min_length=1),
-    k: int = FastQuery(SEARCH_K_DEFAULT, ge=1, le=200),
-) -> Dict[str, Any]:
-    return run_search(q, k)
+@app.get("/debug/db")
+def debug_db():
+    """
+    Ajută enorm la diagnosticul "0 rezultate":
+    - vezi câți vectori sunt în colecția curentă
+    - vezi lista colecțiilor existente în folderul chroma_db
+    """
+    _require_openai_key()
 
+    collections: List[str] = []
+    try:
+        import chromadb  # type: ignore
+        client = chromadb.PersistentClient(path=CHROMA_DIR)
+        collections = [c.name for c in client.list_collections()]
+    except Exception:
+        collections = []
 
-# -----------------------------
-# Core: RAG (LLM analysis)
-# -----------------------------
-def run_rag(query: str, k: int, with_llm: bool) -> Dict[str, Any]:
-    start = time.time()
+    count = None
+    try:
+        vdb = _get_vectordb()
+        count = vdb._collection.count()  # type: ignore[attr-defined]
+    except Exception:
+        count = None
 
-    logger.info("[RAG] query=%r k=%s with_llm=%s", query, k, with_llm)
-
-    # 1) Retrieve (same as search, but allow different k)
-    t0 = time.time()
-    docs = vectordb.similarity_search(query, k=k)
-    t1 = time.time()
-
-    sources = _docs_to_sources(docs)
-    context_text = _sources_to_compact_context(sources, limit=min(CONTEXT_MAX_PEOPLE, len(sources)))
-
-    logger.info(
-        "[RAG] retrieval done - docs=%s unique_sources=%s retrieval=%.2fs",
-        len(docs),
-        len(sources),
-        t1 - t0,
-    )
-    logger.info("[RAG] compact prompt size=%s chars", len(context_text))
-
-    # 2) Optional: skip LLM for short "keyword search" queries
-    if with_llm is False or (SKIP_LLM_FOR_SHORT and _looks_like_short_search(query)):
-        answer = "Am găsit profile relevante. Vezi cardurile din dreapta."
-        token_usage: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-        arch = _build_architecture_meta(token_usage, context_text, provider)
-        _log_token_usage("RAG-SKIPPED", token_usage, query)
-        return {
-            "answer": answer,
-            "sources": sources,
-            "llm_used": "SKIPPED",
-            "retrieved_docs": len(docs),
-            "unique_sources": len(sources),
-            "k": k,
-            "latency_sec": round(time.time() - start, 2),
-            "retrieval_sec": round(t1 - t0, 2),
-            "llm_sec": 0.0,
-            "architecture": arch,
-            "token_usage": token_usage,
-        }
-
-    # Cache LLM answers (great for demos)
-    cache_key = ("rag", query.strip().lower(), int(k), provider, MAX_TOKENS, TEMPERATURE, CONTEXT_MAX_PEOPLE)
-    cached = _cache_get(cache_key)
-    if cached:
-        logger.info("[RAG] cache hit (provider=%s, k=%s)", provider, k)
-        return cached
-
-    # 4) Call LLM
-    t2 = time.time()
-    resp = llm.invoke(
-        [
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=USER_PROMPT.format(question=query, context=context_text)),
-        ]
-    )
-    t3 = time.time()
-
-    answer = getattr(resp, "content", str(resp))
-    token_usage = _extract_token_usage(resp)
-    _log_token_usage("RAG-LLM", token_usage, query)
-
-    llm_latency = round(t3 - t2, 2)
-    retrieval_latency = round(t1 - t0, 2)
-    total_latency = round(t3 - start, 2)
-    arch = _build_architecture_meta(token_usage, context_text, provider)
-
-    result = {
-        "answer": answer,
-        "sources": sources,
-        "llm_used": provider,
-        "retrieved_docs": len(docs),
-        "unique_sources": len(sources),
-        "k": k,
-        "latency_sec": total_latency,
-        "retrieval_sec": retrieval_latency,
-        "llm_sec": llm_latency,
-        "architecture": arch,
-        "token_usage": token_usage,
+    return {
+        "chroma_dir": CHROMA_DIR,
+        "dir_exists": Path(CHROMA_DIR).exists(),
+        "collection_used_by_api": CHROMA_COLLECTION,
+        "vectors_in_collection_used_by_api": count,
+        "collections_found_in_dir": collections,
+        "hint": (
+            "Dacă ai vectori în 'langchain' dar API folosește 'profiles', "
+            "setează CHROMA_COLLECTION=langchain SAU reconstruiește DB în 'profiles'."
+        ),
     }
-    logger.info(
-        "[RAG] completed - latency_total=%.2fs retrieval=%.2fs llm=%.2fs tokens=%s",
-        total_latency,
-        retrieval_latency,
-        llm_latency,
-        token_usage or {},
-    )
-    _cache_set(cache_key, result)
-    return result
 
 
-# -----------------------------
-# FastAPI schema & endpoint
-# -----------------------------
-class QueryBody(BaseModel):
-    query: str = Field(..., min_length=1)
-    with_llm: bool = True
-    k: Optional[int] = None
+@app.post("/search")
+def search_profiles(body: SearchBody):
+    t0 = time.time()
+    vectordb = _get_vectordb()
+
+    docs = vectordb.similarity_search(body.query, k=body.k)
+    sources = _docs_to_sources(docs)
+    return {
+        "query": body.query,
+        "k": body.k,
+        "count": len(sources),
+        "latency_sec": round(time.time() - t0, 3),
+        "sources": sources,
+    }
 
 
 @app.post("/query")
-def rag_query(q: QueryBody) -> Dict[str, Any]:
-    k = int(q.k or RAG_K_DEFAULT)
-    k = max(1, min(200, k))
-    return run_rag(q.query, k=k, with_llm=q.with_llm)
+def query_rag(body: QueryBody):
+    t0 = time.time()
+    k = body.k or RAG_K_DEFAULT
+
+    t_retrieval0 = time.time()
+    vectordb = _get_vectordb()
+    docs = vectordb.similarity_search(body.query, k=k)
+    retrieval_sec = time.time() - t_retrieval0
+
+    sources = _docs_to_sources(docs)
+
+    top_ids = [s.get("source_id") or s.get("vmid") or "" for s in sources[:CONTEXT_MAX_PEOPLE]]
+    cache_key = _sha256(
+        json.dumps(
+            {
+                "provider": "OPENAI",
+                "model": OPENAI_MODEL,
+                "embedding": EMBEDDING_MODEL,
+                "query": body.query,
+                "k": k,
+                "top_ids": top_ids,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+
+    if body.with_llm and cache_key in _ANALYSIS_CACHE:
+        cached = _ANALYSIS_CACHE[cache_key]
+        cached["latency_sec"] = round(time.time() - t0, 3)
+        cached["retrieval_sec"] = round(retrieval_sec, 3)
+        cached["cache_hit"] = True
+        return cached
+
+    context = _compact_context(sources, CONTEXT_MAX_PEOPLE)
+    if not context:
+        answer = "Nu am găsit profile relevante în baza vectorială pentru această întrebare."
+        payload = {
+            "answer": answer,
+            "sources": sources,
+            "llm_used": "OPENAI",
+            "retrieved_docs": len(docs),
+            "unique_sources": len(sources),
+            "k": k,
+            "latency_sec": round(time.time() - t0, 3),
+            "retrieval_sec": round(retrieval_sec, 3),
+            "llm_sec": 0.0,
+            "architecture": {
+                "embedding_model": EMBEDDING_MODEL,
+                "vectordb": "Chroma",
+                "llm_provider": "OPENAI",
+                "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "prompt_characters": 0,
+            },
+            "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "cache_hit": False,
+        }
+        _ANALYSIS_CACHE[cache_key] = payload
+        return payload
+
+    llm = _make_llm()
+    user_prompt = USER_PROMPT_TEMPLATE.format(query=body.query, context=context)
+    prompt_chars = len(SYSTEM_PROMPT) + len(user_prompt)
+
+    t_llm0 = time.time()
+    resp = llm.invoke([SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=user_prompt)])
+    llm_sec = time.time() - t_llm0
+
+    answer = _extract_llm_text(resp).strip()
+
+    token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    meta = getattr(resp, "response_metadata", None) or {}
+    usage = meta.get("token_usage") if isinstance(meta, dict) else None
+    if isinstance(usage, dict):
+        pt = int(usage.get("prompt_tokens") or 0)
+        ct = int(usage.get("completion_tokens") or 0)
+        tt = int(usage.get("total_tokens") or (pt + ct))
+        token_usage = {"prompt_tokens": pt, "completion_tokens": ct, "total_tokens": tt}
+
+    if not answer:
+        refusal = _extract_refusal(resp)
+        if refusal:
+            answer = f"⚠️ Modelul a refuzat să răspundă: {refusal}"
+        else:
+            answer = "Modelul nu a returnat conținut text pentru această cerere (posibil refuz sau răspuns gol)."
+
+    payload = {
+        "answer": answer,
+        "sources": sources,
+        "llm_used": "OPENAI",
+        "retrieved_docs": len(docs),
+        "unique_sources": len(sources),
+        "k": k,
+        "latency_sec": round(time.time() - t0, 3),
+        "retrieval_sec": round(retrieval_sec, 3),
+        "llm_sec": round(llm_sec, 3),
+        "architecture": {
+            "embedding_model": EMBEDDING_MODEL,
+            "vectordb": "Chroma",
+            "llm_provider": "OPENAI",
+            "token_usage": token_usage,
+            "prompt_characters": prompt_chars,
+        },
+        "token_usage": token_usage,
+        "cache_hit": False,
+    }
+
+    _ANALYSIS_CACHE[cache_key] = payload
+    return payload
