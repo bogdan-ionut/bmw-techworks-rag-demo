@@ -1,0 +1,462 @@
+# app/api/routes.py
+from __future__ import annotations
+
+import json
+import logging
+import re
+import time
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, Query, Request
+from pydantic import BaseModel, Field
+
+from langchain_core.documents import Document
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from app.rag.prompt import ANSWER_SYSTEM_PROMPT, format_candidates_for_prompt
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+# -----------------------------
+# DTO
+# -----------------------------
+class QueryBody(BaseModel):
+    query: str = Field(..., min_length=1)
+    with_llm: bool = True
+    k: Optional[int] = None  # retrieval top_k override
+    filters: Optional[Dict[str, Any]] = None  # optional explicit pinecone filter
+
+
+# -----------------------------
+# Cache helpers
+# -----------------------------
+def _cache_get(cache: Dict[Tuple[Any, ...], Dict[str, Any]], key: Tuple[Any, ...], ttl_sec: int) -> Optional[Dict[str, Any]]:
+    entry = cache.get(key)
+    if not entry:
+        return None
+    if (time.time() - entry["t"]) > ttl_sec:
+        cache.pop(key, None)
+        return None
+    return entry["v"]
+
+
+def _cache_set(cache: Dict[Tuple[Any, ...], Dict[str, Any]], key: Tuple[Any, ...], value: Dict[str, Any]) -> None:
+    cache[key] = {"t": time.time(), "v": value}
+
+
+# -----------------------------
+# JSON safety
+# -----------------------------
+def _safe_json_loads(s: str) -> Dict[str, Any]:
+    s = (s or "").strip()
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+    start = s.find("{")
+    end = s.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return json.loads(s[start : end + 1])
+    raise ValueError("Could not parse JSON from model output.")
+
+
+# -----------------------------
+# Utils
+# -----------------------------
+def _normalize_linkedin(url: Optional[str]) -> str:
+    if not url:
+        return ""
+    clean = str(url).strip().split("?")[0].split("#")[0].rstrip("/")
+    try:
+        parsed = urlparse(clean)
+        host = (parsed.netloc or "").lower()
+        if host.endswith("linkedin.com"):
+            host = "linkedin.com"
+        path = parsed.path or ""
+        if path.startswith("/in/"):
+            slug = path[len("/in/") :].rstrip("/").lower()
+        else:
+            slug = path.lstrip("/").rstrip("/").lower()
+        return f"https://{host}/in/{slug}" if slug else ""
+    except Exception:
+        return clean.lower()
+
+
+def _source_id(s: Dict[str, Any]) -> str:
+    return (
+        str(s.get("vmid") or "").strip()
+        or _normalize_linkedin(s.get("profile_url"))
+        or str(s.get("id") or "").strip()
+        or str(s.get("full_name") or "").strip().lower()
+    )
+
+
+def _looks_like_short_search(query: str) -> bool:
+    q = query.strip()
+    return len(q) <= 22 and "?" not in q
+
+
+def _source_to_text(s: Dict[str, Any]) -> str:
+    # Prefer embedding_text if present (best semantic)
+    emb = (s.get("embedding_text") or "").strip()
+    if emb:
+        return emb
+
+    parts = [
+        f"Employee: {s.get('full_name') or 'N/A'}",
+        f"Headline: {s.get('headline') or 'N/A'}",
+        f"Current role: {s.get('job_title') or 'N/A'} ({s.get('job_date_range') or ''})",
+        f"Previous role: {s.get('job_title_2') or 'N/A'} ({s.get('job_date_range_2') or ''})",
+        f"Location: {s.get('location') or 'N/A'}",
+        f"Education 1: {s.get('school') or ''} – {s.get('school_degree') or ''} – {s.get('school_date_range') or ''}",
+        f"Education 2: {s.get('school_2') or ''} – {s.get('school_degree_2') or ''} – {s.get('school_date_range_2') or ''}",
+        f"LinkedIn: {s.get('profile_url') or ''}",
+        f"VMID: {s.get('vmid') or ''}",
+        f"Eyewear present: {s.get('eyewear_present')}",
+        f"Beard present: {s.get('beard_present')}",
+    ]
+    return "\n".join([p for p in parts if p.strip()]).strip()
+
+
+# -----------------------------
+# Filter extraction (cheap + reliable)
+# -----------------------------
+_GLASSES_TRUE = re.compile(r"\b(eyeglasses|eye-glasses|glasses|spectacles)\b", re.I)
+_GLASSES_FALSE = re.compile(r"\b(no glasses|without glasses|no eyewear)\b", re.I)
+
+_BEARD_TRUE = re.compile(r"\b(beard|bearded|mustache|moustache)\b", re.I)
+_BEARD_FALSE = re.compile(r"\b(clean[- ]shaven|no beard)\b", re.I)
+
+
+def _merge_filters(a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not a and not b:
+        return None
+    if a and not b:
+        return a
+    if b and not a:
+        return b
+    return {"$and": [a, b]}
+
+
+def _extract_metadata_filter(query: str) -> Optional[Dict[str, Any]]:
+    q = query.strip()
+    parts: List[Dict[str, Any]] = []
+
+    if _GLASSES_FALSE.search(q):
+        parts.append({"eyewear_present": {"$eq": False}})
+    elif _GLASSES_TRUE.search(q):
+        parts.append({"eyewear_present": {"$eq": True}})
+
+    if _BEARD_FALSE.search(q):
+        parts.append({"beard_present": {"$eq": False}})
+    elif _BEARD_TRUE.search(q):
+        parts.append({"beard_present": {"$eq": True}})
+
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return parts[0]
+    return {"$and": parts}
+
+
+# -----------------------------
+# Pinecone search (semantic) with optional metadata filter
+# -----------------------------
+def _pinecone_query(request: Request, query: str, top_k: int, flt: Optional[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
+    embeddings = request.app.state.embeddings
+    index = request.app.state.pinecone_index
+    namespace = request.app.state.settings.pinecone_namespace
+
+    vec = embeddings.embed_query(query)
+
+    res = index.query(
+        vector=vec,
+        top_k=top_k,
+        include_metadata=True,
+        namespace=namespace,
+        filter=flt,
+    )
+
+    matches = res.get("matches") if isinstance(res, dict) else getattr(res, "matches", []) or []
+
+    sources: List[Dict[str, Any]] = []
+    for m in matches:
+        if isinstance(m, dict):
+            md = m.get("metadata") or {}
+            mid = m.get("id")
+            score = m.get("score")
+        else:
+            md = getattr(m, "metadata", {}) or {}
+            mid = getattr(m, "id", None)
+            score = getattr(m, "score", None)
+
+        if mid and not md.get("id"):
+            md["id"] = mid
+
+        # IMPORTANT: ingestion uses profile_image_s3_url, not profile_image_url
+        image_url = (
+            md.get("profile_image_s3_url")
+            or md.get("profile_image_url")
+            or md.get("image_url")
+            or None
+        )
+
+        sources.append(
+            {
+                "id": md.get("id"),
+                "score": score,
+                "vmid": md.get("vmid"),
+                "full_name": md.get("full_name"),
+                "profile_url": md.get("profile_url"),
+                "profile_image_url": image_url,
+
+                "headline": md.get("headline"),
+                "location": md.get("location"),
+                "job_title": md.get("job_title"),
+                "job_date_range": md.get("job_date_range"),
+                "job_title_2": md.get("job_title_2"),
+                "job_date_range_2": md.get("job_date_range_2"),
+                "school": md.get("school"),
+                "school_degree": md.get("school_degree"),
+                "school_date_range": md.get("school_date_range"),
+                "school_2": md.get("school_2"),
+                "school_degree_2": md.get("school_degree_2"),
+                "school_date_range_2": md.get("school_date_range_2"),
+
+                # filters
+                "eyewear_present": md.get("eyewear_present"),
+                "beard_present": md.get("beard_present"),
+
+                # best context (already built in ingestion)
+                "embedding_text": md.get("embedding_text") or "",
+            }
+        )
+
+    return sources, len(matches)
+
+
+# -----------------------------
+# Cohere rerank (top_k -> top_n), reorder cards
+# -----------------------------
+def _cohere_rerank_sources(request: Request, query: str, sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    reranker = request.app.state.cohere_reranker
+    if not reranker or not sources:
+        return sources
+
+    docs = [Document(page_content=_source_to_text(s), metadata=s) for s in sources]
+    reranked_docs = reranker.compress_documents(documents=docs, query=query)  # already top_n
+
+    top_sources = [d.metadata for d in reranked_docs]
+    top_ids = {_source_id(s) for s in top_sources}
+
+    rest = [s for s in sources if _source_id(s) and _source_id(s) not in top_ids]
+    return top_sources + rest
+
+
+# -----------------------------
+# Routes
+# -----------------------------
+@router.get("/health", include_in_schema=False)
+def health() -> Dict[str, Any]:
+    return {"ok": True}
+
+
+@router.get("/search")
+def search_endpoint(
+    request: Request,
+    q: str = Query(..., min_length=1),
+    k: int = Query(24, ge=1, le=200),
+    filters: Optional[str] = Query(None, description="Optional JSON string Pinecone filter"),
+) -> Dict[str, Any]:
+    s = request.app.state.settings
+    cache = request.app.state.cache
+    ttl = int(s.cache_ttl_sec)
+
+    query = q.strip()
+    start = time.time()
+
+    explicit_filter = None
+    if filters:
+        try:
+            explicit_filter = json.loads(filters)
+        except Exception:
+            explicit_filter = None
+
+    inferred_filter = _extract_metadata_filter(query)
+    flt = explicit_filter or inferred_filter
+
+    cache_key = ("search", query.lower(), int(k), s.embed_model, s.pinecone_index_name, json.dumps(flt, sort_keys=True) if flt else None)
+    cached = _cache_get(cache, cache_key, ttl)
+    if cached:
+        return cached
+
+    t0 = time.time()
+    sources, retrieved_docs = _pinecone_query(request, query, top_k=int(k), flt=flt)
+    t1 = time.time()
+
+    if bool(s.rerank_in_search):
+        sources = _cohere_rerank_sources(request, query, sources)
+
+    result = {
+        "sources": sources,
+        "retrieved_docs": retrieved_docs,
+        "unique_sources": len(sources),
+        "k": int(k),
+        "filters_applied": flt,
+        "latency_sec": round(time.time() - start, 2),
+        "retrieval_sec": round(t1 - t0, 2),
+    }
+    _cache_set(cache, cache_key, result)
+    return result
+
+
+@router.post("/query")
+def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
+    s = request.app.state.settings
+    cache = request.app.state.cache
+    ttl = int(s.cache_ttl_sec)
+
+    query = body.query.strip()
+    with_llm = bool(body.with_llm)
+    k = int(body.k or s.search_top_k)
+    k = max(1, min(200, k))
+
+    start = time.time()
+
+    inferred_filter = _extract_metadata_filter(query)
+    flt = _merge_filters(body.filters, inferred_filter) if body.filters else inferred_filter
+
+    # 1) retrieve
+    t0 = time.time()
+    sources, retrieved_docs = _pinecone_query(request, query, top_k=k, flt=flt)
+    t1 = time.time()
+
+    # 2) rerank (optional)
+    sources = _cohere_rerank_sources(request, query, sources)
+
+    # Build candidates for the answer prompt (use embedding_text if present)
+    candidates: List[Dict[str, Any]] = []
+    for s0 in sources:
+        candidates.append(
+            {
+                "id": s0.get("id"),
+                "score": s0.get("score"),
+                "text": _source_to_text(s0),
+                "metadata": {
+                    # keep the fields the prompt expects
+                    "full_name": s0.get("full_name"),
+                    "profile_url": s0.get("profile_url"),
+                    "profile_image_s3_url": s0.get("profile_image_url"),  # prompt uses this key
+                },
+            }
+        )
+
+    # 3) skip LLM (optional)
+    if not with_llm or (s.skip_llm_for_short and _looks_like_short_search(query)):
+        answer_obj = {
+            "answer": "I found relevant profiles. See the cards.",
+            "filters_applied": flt,
+            "top_matches": [],
+        }
+        return {
+            "answer": answer_obj,
+            "answer_text": answer_obj["answer"],
+            "sources": sources,
+            "filters_applied": flt,
+            "llm_used": "SKIPPED",
+            "retrieved_docs": retrieved_docs,
+            "unique_sources": len(sources),
+            "k": k,
+            "latency_sec": round(time.time() - start, 2),
+            "retrieval_sec": round(t1 - t0, 2),
+            "llm_sec": 0.0,
+        }
+
+    # 4) cache LLM answer (include filters)
+    cache_key = (
+        "rag",
+        query.lower(),
+        int(k),
+        json.dumps(flt, sort_keys=True) if flt else None,
+        s.llm_provider,
+        s.openai_model,
+        s.gemini_model,
+        s.temperature,
+        s.max_tokens,
+        s.context_max_people,
+        s.cohere_rerank_top_n,
+    )
+    cached = _cache_get(cache, cache_key, ttl)
+    if cached:
+        cached = dict(cached)
+        cached["sources"] = sources
+        cached["retrieved_docs"] = retrieved_docs
+        cached["unique_sources"] = len(sources)
+        cached["k"] = k
+        cached["filters_applied"] = flt
+        return cached
+
+    # 5) LLM -> JSON answer (same schema as CLI/service)
+    llm = request.app.state.llm
+    t2 = time.time()
+
+    user_msg = {
+        "query": query,
+        "filters_applied": flt,
+        "candidates_text": format_candidates_for_prompt(candidates),
+    }
+
+    resp = llm.invoke(
+        [
+            SystemMessage(content=ANSWER_SYSTEM_PROMPT),
+            HumanMessage(content=json.dumps(user_msg, ensure_ascii=False)),
+        ]
+    )
+    t3 = time.time()
+
+    raw = getattr(resp, "content", str(resp))
+    try:
+        answer_obj = _safe_json_loads(raw)
+    except Exception:
+        # hard fallback so UI never breaks
+        answer_obj = {
+            "answer": raw.strip() or "I couldn't generate an answer.",
+            "filters_applied": flt,
+            "top_matches": [],
+        }
+
+    result = {
+        "answer": answer_obj,
+        "answer_text": str(answer_obj.get("answer") or ""),
+        "sources": sources,
+        "filters_applied": flt,
+        "llm_used": s.llm_provider,
+        "retrieved_docs": retrieved_docs,
+        "unique_sources": len(sources),
+        "k": k,
+        "latency_sec": round(t3 - start, 2),
+        "retrieval_sec": round(t1 - t0, 2),
+        "llm_sec": round(t3 - t2, 2),
+    }
+    _cache_set(cache, cache_key, result)
+    return result
+
+
+@router.get("/meta", include_in_schema=False)
+def meta(request: Request) -> Dict[str, Any]:
+    s = request.app.state.settings
+    return {
+        "pinecone_index": s.pinecone_index_name,
+        "pinecone_namespace": s.pinecone_namespace,
+        "embed_model": s.embed_model,
+        "llm_provider": s.llm_provider,
+        "openai_model": s.openai_model,
+        "gemini_model": s.gemini_model,
+        "cohere_rerank_top_n": s.cohere_rerank_top_n,
+        "cache_ttl_sec": s.cache_ttl_sec,
+        "frontend": "app/web/index.html",
+        "language": "en",
+    }

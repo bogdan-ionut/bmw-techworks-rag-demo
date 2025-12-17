@@ -5,12 +5,8 @@ venv/
 # PyCharm
 .idea/
 
-# Date sensibile
-
 .env
 
-
-# Altele
 __pycache__/
 *.pyc
 *.pyo

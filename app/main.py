@@ -1,165 +1,169 @@
 # app/main.py
+from __future__ import annotations
 
 import os
-import json
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Optional
 
-from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
-from langchain_core.documents import Document
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 
+# Gemini (optional)
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except Exception:
+    ChatGoogleGenerativeAI = None
 
-# --- paths ---
-BASE_DIR = Path(__file__).resolve().parent.parent  # project root
-DATA_DIR = BASE_DIR / "data"
-CHROMA_DIR = Path(os.getenv("CHROMA_DIR", str(BASE_DIR / "chroma_db")))
-CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "profiles")
+# Cohere rerank – try both import paths for compatibility
+try:
+    from langchain_cohere import CohereRerank
+except Exception:
+    try:
+        from langchain_community.document_compressors import CohereRerank  # older path
+    except Exception:
+        CohereRerank = None
 
-DOTENV_PATH = BASE_DIR / ".env"
-if DOTENV_PATH.exists():
-    load_dotenv(dotenv_path=DOTENV_PATH)
-else:
-    load_dotenv()
+from pinecone import Pinecone
 
-# Fișierul local JSONL
-LOCAL_JSONL = DATA_DIR / "bmw_employees.jsonl"
+from app.api.routes import router as api_router
+from app.core.config import get_settings
+from app.core.logging import init_logging
 
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
+# init logging as early as possible
+init_logging(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    json_logs=os.getenv("LOG_JSON", "0").strip().lower() in {"1", "true", "yes", "y", "on"},
+)
 
-
-def require_openai_key() -> str:
-    key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not key:
-        raise RuntimeError(
-            "OPENAI_API_KEY lipsește. Pune cheia în .env în root-ul proiectului."
-        )
-    return key
-
-
-def load_jsonl(path: Path) -> List[Dict[str, Any]]:
-    """Citește JSONL linie cu linie și întoarce o listă de dict-uri."""
-    records: List[Dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-                records.append(rec)
-            except json.JSONDecodeError as e:
-                print(f"[WARN] Sar peste linie invalidă ({e})")
-    print(f"[INFO] Loaded {len(records)} JSONL records")
-    return records
+logger = logging.getLogger(__name__)
 
 
-def record_to_text(rec: Dict[str, Any]) -> str:
-    """Transformă un record brut într-un blob de text bogat pentru RAG."""
-    parts = [
-        f"Employee: {rec.get('full_name', 'N/A')}",
-        f"Headline: {rec.get('headline', 'N/A')}",
-        "",
-        "# Current role",
-        f"Job title: {rec.get('job_title', 'N/A')}",
-        f"Job period: {rec.get('job_date_range', 'N/A')}",
-        "",
-        "# Previous role",
-        f"Job title 2: {rec.get('job_title_2', 'N/A')}",
-        f"Job period 2: {rec.get('job_date_range_2', 'N/A')}",
-        "",
-        "# Location",
-        f"Location: {rec.get('location', 'N/A')}",
-        "",
-        "# Education",
-        f"School 1: {rec.get('school', 'N/A')} – "
-        f"{rec.get('school_degree', 'N/A')} – "
-        f"{rec.get('school_date_range', 'N/A')}",
-        f"School 2: {rec.get('school_2', 'N/A')} – "
-        f"{rec.get('school_degree_2', 'N/A')} – "
-        f"{rec.get('school_date_range_2', 'N/A')}",
-        "",
-        f"LinkedIn: {rec.get('profile_url', 'N/A')}",
-        f"VMID: {rec.get('vmid', 'N/A')}",
+def resolve_web_dir(base_dir: Path) -> Optional[Path]:
+    web_dir = base_dir / "web"
+    if (web_dir / "index.html").exists():
+        return web_dir
+    return None
+
+
+def init_pinecone_index(pinecone_api_key: str, index_name: str):
+    if not pinecone_api_key:
+        raise RuntimeError("Missing PINECONE_API_KEY (env or AWS secret).")
+    if not index_name:
+        raise RuntimeError("Missing PINECONE_INDEX_NAME (env or AWS secret).")
+    pc = Pinecone(api_key=pinecone_api_key)
+    return pc.Index(index_name)
+
+
+def init_cohere_reranker(cohere_api_key: str, model: str, top_n: int):
+    """
+    Newer langchain-cohere requires `model=...`.
+    We'll try a small fallback list (English-first) to avoid blocking startup.
+    """
+    if not cohere_api_key:
+        return None
+    if CohereRerank is None:
+        raise RuntimeError("COHERE_API_KEY set but CohereRerank import failed. Install langchain-cohere.")
+
+    candidates = []
+    if model:
+        candidates.append(model)
+
+    # Fallbacks (English-first, then multilingual)
+    candidates += [
+        "rerank-english-v3.0",
+        "rerank-english-v2.0",
+        "rerank-multilingual-v3.0",
+        "rerank-multilingual-v2.0",
     ]
-    return "\n".join(parts)
+
+    seen = set()
+    candidates = [m for m in candidates if not (m in seen or seen.add(m))]
+
+    last_err: Optional[Exception] = None
+    for m in candidates:
+        try:
+            rr = CohereRerank(
+                cohere_api_key=cohere_api_key,
+                model=m,          # <- REQUIRED
+                top_n=int(top_n),
+            )
+            logger.info("Cohere reranker enabled (model=%s, top_n=%s)", m, top_n)
+            return rr
+        except Exception as e:
+            last_err = e
+            logger.warning("Failed to init CohereRerank with model=%s (%s). Trying next...", m, e)
+
+    raise RuntimeError(f"Could not initialize CohereRerank with any known model. Last error: {last_err}")
 
 
-def build_documents(records: List[Dict[str, Any]]) -> List[Document]:
-    """
-    Construiește Document-e LangChain cu metadata RICH pentru UI (/sources).
-    """
-    docs: List[Document] = []
-    for rec in records:
-        content = record_to_text(rec)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = get_settings()
+    logger.info("App settings: %s", settings.redacted())
 
-        stable_id = rec.get("vmid") or rec.get("profile_url") or rec.get("full_name") or "unknown"
+    app.state.settings = settings
+    app.state.cache = {}
 
-        meta = {
-            "id": stable_id,
-            "source_id": stable_id,  # util pt UI
-            "vmid": rec.get("vmid"),
-            "full_name": rec.get("full_name"),
-            "profile_url": rec.get("profile_url"),
-            "profile_image_url": rec.get("profile_image_url"),
-            "headline": rec.get("headline"),
-            "location": rec.get("location"),
-            "job_title": rec.get("job_title"),
-            "job_date_range": rec.get("job_date_range"),
-            "job_title_2": rec.get("job_title_2"),
-            "job_date_range_2": rec.get("job_date_range_2"),
-            "school": rec.get("school"),
-            "school_degree": rec.get("school_degree"),
-            "school_date_range": rec.get("school_date_range"),
-            "school_2": rec.get("school_2"),
-            "school_degree_2": rec.get("school_degree_2"),
-            "school_date_range_2": rec.get("school_date_range_2"),
-        }
-
-        docs.append(Document(page_content=content, metadata=meta))
-
-    print(f"[INFO] Built {len(docs)} formatted Documents")
-    return docs
-
-
-def main() -> None:
-    require_openai_key()
-
-    if not LOCAL_JSONL.exists():
-        raise FileNotFoundError(f"JSONL file not found at {LOCAL_JSONL}")
-
-    records = load_jsonl(LOCAL_JSONL)
-    docs = build_documents(records)
-
-    # NU splităm: 1 profil = 1 Document
-    splits = docs
-    print(f"[INFO] Without splitting: {len(splits)} full documents")
-
-    embeddings = OpenAIEmbeddings(model=EMBEDDING_MODEL)
-
-    # IMPORTANT: folosim aceeași colecție ca API-ul
-    vectordb = Chroma.from_documents(
-        documents=splits,
-        embedding=embeddings,
-        persist_directory=str(CHROMA_DIR),
-        collection_name=CHROMA_COLLECTION,
+    # Embeddings (OpenAI)
+    if not settings.openai_api_key:
+        raise RuntimeError("Missing OPENAI_API_KEY (env or AWS secret).")
+    app.state.embeddings = OpenAIEmbeddings(
+        api_key=settings.openai_api_key,
+        model=settings.embed_model,
     )
 
-    try:
-        vectordb.persist()
-    except Exception:
-        pass
+    # LLM provider
+    if settings.llm_provider == "OPENAI":
+        app.state.llm = ChatOpenAI(
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+            temperature=settings.temperature,
+            max_tokens=settings.max_tokens,
+        )
+    elif settings.llm_provider == "GEMINI":
+        if ChatGoogleGenerativeAI is None:
+            raise RuntimeError("Gemini selected but langchain-google-genai not installed.")
+        if not settings.google_api_key:
+            raise RuntimeError("Missing GOOGLE_API_KEY for Gemini (env or AWS secret).")
+        app.state.llm = ChatGoogleGenerativeAI(
+            api_key=settings.google_api_key,
+            model=settings.gemini_model,
+            temperature=settings.temperature,
+        )
+    else:
+        raise RuntimeError(f"Invalid LLM_PROVIDER={settings.llm_provider}. Use OPENAI or GEMINI.")
 
-    print(f"✅ Chroma DB built & saved in {CHROMA_DIR}")
-    print(f"✅ Collection: {CHROMA_COLLECTION}")
-    try:
-        count = vectordb._collection.count()  # type: ignore[attr-defined]
-        print(f"✅ Vectors count: {count}")
-    except Exception:
-        pass
+    # Pinecone
+    app.state.pinecone_index = init_pinecone_index(settings.pinecone_api_key, settings.pinecone_index_name)
+
+    # Cohere reranker (optional)
+    app.state.cohere_reranker = init_cohere_reranker(
+        cohere_api_key=settings.cohere_api_key,
+        model=settings.cohere_rerank_model,
+        top_n=settings.cohere_rerank_top_n,
+    )
+
+    yield
 
 
-if __name__ == "__main__":
-    main()
+BASE_DIR = Path(__file__).resolve().parent
+
+app = FastAPI(title="BMW TechWorks RAG Demo", lifespan=lifespan)
+app.include_router(api_router)
+
+WEB_DIR = resolve_web_dir(BASE_DIR)
+if WEB_DIR:
+    app.mount("/web", StaticFiles(directory=str(WEB_DIR)), name="web")
+
+    @app.get("/", include_in_schema=False)
+    def serve_homepage():
+        return FileResponse(str(WEB_DIR / "index.html"))
+else:
+    @app.get("/", include_in_schema=False)
+    def serve_homepage():
+        return {"message": "Frontend missing. Expected: app/web/index.html"}
