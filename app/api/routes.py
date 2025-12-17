@@ -60,6 +60,27 @@ def _cache_set(
 
 
 # -----------------------------
+# LLM usage helpers
+# -----------------------------
+def _extract_llm_usage(resp: Any) -> Tuple[int, int, int, Optional[str]]:
+    meta = getattr(resp, "response_metadata", {}) or {}
+    usage = meta.get("token_usage") or {}
+
+    prompt_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+    completion_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+    total_tokens = int(usage.get("total_tokens") or (prompt_tokens + completion_tokens))
+
+    model_name = (
+        meta.get("model_name")
+        or meta.get("model")
+        or usage.get("model")
+        or usage.get("model_name")
+    )
+
+    return prompt_tokens, completion_tokens, total_tokens, model_name
+
+
+# -----------------------------
 # JSON safety
 # -----------------------------
 def _safe_json_loads(s: str) -> Dict[str, Any]:
@@ -436,6 +457,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
 
     query = body.query.strip()
     with_llm = bool(body.with_llm)
+    configured_llm_model = s.openai_model if s.llm_provider == "OPENAI" else s.gemini_model
 
     k = int(body.k or s.search_top_k)
     k = max(1, min(200, k))
@@ -451,7 +473,10 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     t1 = time.time()
 
     # 2) rerank (optional)
+    rerank_start = time.time()
     sources = _cohere_rerank_sources(request, query, sources)
+    rerank_end = time.time()
+    rerank_sec = round(rerank_end - rerank_start, 2)
 
     # Effective top_matches count for UI/answer payload
     top_n = min(
@@ -491,12 +516,18 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
             "sources": sources,
             "filters_applied": flt,
             "llm_used": "SKIPPED",
+            "llm_model": configured_llm_model or "SKIPPED",
             "retrieved_docs": retrieved_docs,
             "unique_sources": len(sources),
             "k": k,
             "latency_sec": round(time.time() - start, 2),
             "retrieval_sec": round(t1 - t0, 2),
+            "pinecone_sec": round(t1 - t0, 2),
+            "rerank_sec": rerank_sec,
             "llm_sec": 0.0,
+            "llm_prompt_tokens": 0,
+            "llm_completion_tokens": 0,
+            "llm_total_tokens": 0,
         }
 
     # 4) cache LLM answer (include filters)
@@ -521,6 +552,15 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         cached["unique_sources"] = len(sources)
         cached["k"] = k
         cached["filters_applied"] = flt
+        cached["retrieval_sec"] = round(t1 - t0, 2)
+        cached["pinecone_sec"] = cached.get("pinecone_sec", round(t1 - t0, 2))
+        cached["rerank_sec"] = rerank_sec
+        cached["latency_sec"] = round(time.time() - start, 2)
+        cached.setdefault("llm_sec", 0.0)
+        cached.setdefault("llm_prompt_tokens", 0)
+        cached.setdefault("llm_completion_tokens", 0)
+        cached.setdefault("llm_total_tokens", 0)
+        cached.setdefault("llm_model", s.openai_model if s.llm_provider == "OPENAI" else s.gemini_model)
         return cached
 
     # 5) LLM -> JSON answer
@@ -567,6 +607,9 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     )
     t3 = time.time()
 
+    prompt_tokens, completion_tokens, total_tokens, usage_model = _extract_llm_usage(resp)
+    llm_model_used = usage_model or configured_llm_model or s.llm_provider
+
     raw = getattr(resp, "content", str(resp)) or ""
     logger.debug("LLM raw output: %s", raw)
 
@@ -594,12 +637,18 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         "sources": sources,
         "filters_applied": flt,
         "llm_used": s.llm_provider,
+        "llm_model": llm_model_used,
         "retrieved_docs": retrieved_docs,
         "unique_sources": len(sources),
         "k": k,
         "latency_sec": round(t3 - start, 2),
         "retrieval_sec": round(t1 - t0, 2),
+        "pinecone_sec": round(t1 - t0, 2),
+        "rerank_sec": rerank_sec,
         "llm_sec": round(t3 - t2, 2),
+        "llm_prompt_tokens": prompt_tokens,
+        "llm_completion_tokens": completion_tokens,
+        "llm_total_tokens": total_tokens,
     }
     _cache_set(cache, cache_key, result)
     return result
