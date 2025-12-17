@@ -141,12 +141,59 @@ def _get_llm_client(request: Request, provider: str, model: str):
 # -----------------------------
 # JSON safety
 # -----------------------------
-def _safe_json_loads(s: str) -> Dict[str, Any]:
+def _coerce_llm_text(x: Any) -> str:
+    """
+    LangChain providers sometimes return content as:
+    - str (OpenAI)
+    - list[dict|str] (Gemini / multimodal parts)
+    - dict (rare)
+    Convert safely to a plain string.
+    """
+    if x is None:
+        return ""
+    if isinstance(x, str):
+        return x
+    if isinstance(x, bytes):
+        try:
+            return x.decode("utf-8", errors="ignore")
+        except Exception:
+            return str(x)
+
+    # Gemini sometimes returns list of parts
+    if isinstance(x, list):
+        parts: List[str] = []
+        for it in x:
+            if it is None:
+                continue
+            if isinstance(it, str):
+                parts.append(it)
+                continue
+            if isinstance(it, dict):
+                if "text" in it:
+                    parts.append(str(it.get("text") or ""))
+                elif "content" in it:
+                    parts.append(str(it.get("content") or ""))
+                else:
+                    parts.append(json.dumps(it, ensure_ascii=False))
+                continue
+            parts.append(str(it))
+        return "\n".join([p for p in parts if p]).strip()
+
+    if isinstance(x, dict):
+        if "text" in x:
+            return str(x.get("text") or "")
+        return json.dumps(x, ensure_ascii=False)
+
+    return str(x)
+
+
+def _safe_json_loads(s: Any) -> Dict[str, Any]:
     """
     Tries to parse model output as JSON.
     If it contains extra text, tries to extract the outermost {...}.
+    Accepts str/list/dict and coerces safely to string first.
     """
-    s = (s or "").strip()
+    s = _coerce_llm_text(s).strip()
     try:
         obj = json.loads(s)
         if isinstance(obj, dict):
@@ -257,7 +304,7 @@ def _fallback_answer_obj(
     base = f"Top matches for '{query}' ({reason}): " + (", ".join(names) if names else "No matches.")
     if raw:
         # keep it short (UI-friendly)
-        raw_snip = raw.strip().replace("\n", " ")
+        raw_snip = _coerce_llm_text(raw).strip().replace("\n", " ")
         if len(raw_snip) > 240:
             raw_snip = raw_snip[:240] + "..."
         base = base + f"\n\n(LLM output was invalid/truncated.)"
@@ -545,11 +592,8 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     rerank_sec = round(rerank_end - rerank_start, 2)
 
     # Effective top_matches count for UI/answer payload
-    top_n = min(
-        int(getattr(s, "context_max_people", DEFAULT_FALLBACK_TOP_N) or DEFAULT_FALLBACK_TOP_N),
-        DEFAULT_FALLBACK_TOP_N,
-        len(sources or []),
-    )
+    top_n_cfg = int(getattr(s, "context_max_people", DEFAULT_FALLBACK_TOP_N) or DEFAULT_FALLBACK_TOP_N)
+    top_n = max(0, min(top_n_cfg, len(sources or [])))
 
     # Build candidates for the answer prompt
     candidates: List[Dict[str, Any]] = []
@@ -669,23 +713,58 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         ANSWER_SYSTEM_PROMPT
         + "\n\nHard constraints:\n"
         + f"- Return at most {max(0, top_n)} top_matches.\n"
-        + "- Keep 'answer' concise (<= 300 chars).\n"
-        + "- Keep each 'why_match' concise (<= 120 chars).\n"
+        + "- Keep 'answer' <= 1200 chars.\n"
+        + "- Keep each 'why_match' <= 180 chars.\n"
         + "- Return JSON ONLY.\n"
     )
 
-    resp = llm_call.invoke(
-        [
-            SystemMessage(content=tight_system),
-            HumanMessage(content=json.dumps(user_msg, ensure_ascii=False)),
-        ]
-    )
+    try:
+        resp = llm_call.invoke(
+            [
+                SystemMessage(content=tight_system),
+                HumanMessage(content=json.dumps(user_msg, ensure_ascii=False)),
+            ]
+        )
+    except Exception as e:
+        logger.exception(
+            "LLM invoke failed; using fallback",
+            extra={"query": query, "llm_provider": selected_provider, "llm_model": selected_model, "llm_error": str(e)},
+        )
+        answer_obj = _fallback_answer_obj(
+            query=query,
+            flt=flt,
+            sources=sources,
+            top_n=top_n,
+            reason=f"LLM invoke failed ({selected_provider})",
+            raw=None,
+        )
+        return {
+            "answer": answer_obj,
+            "answer_text": str(answer_obj.get("answer") or ""),
+            "sources": sources,
+            "filters_applied": flt,
+            "llm_provider": selected_provider,
+            "llm_used": selected_provider,
+            "llm_model": selected_model,
+            "retrieved_docs": retrieved_docs,
+            "unique_sources": len(sources),
+            "k": k,
+            "latency_sec": round(time.time() - start, 2),
+            "retrieval_sec": round(t1 - t0, 2),
+            "pinecone_sec": round(t1 - t0, 2),
+            "rerank_sec": rerank_sec,
+            "llm_sec": 0.0,
+            "llm_prompt_tokens": 0,
+            "llm_completion_tokens": 0,
+            "llm_total_tokens": 0,
+        }
+
     t3 = time.time()
 
     prompt_tokens, completion_tokens, total_tokens, usage_model = _extract_llm_usage(resp)
     llm_model_used = usage_model or selected_model or selected_provider
 
-    raw = getattr(resp, "content", str(resp)) or ""
+    raw = _coerce_llm_text(getattr(resp, "content", resp) or "")
     logger.debug("LLM raw output: %s", raw)
 
     try:
