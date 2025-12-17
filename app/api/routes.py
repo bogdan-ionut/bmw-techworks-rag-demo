@@ -261,6 +261,32 @@ def _safe_json_loads(s: Any) -> Dict[str, Any]:
     raise ValueError("Could not parse JSON from model output.")
 
 
+def _safe_stringify_for_log(val: Any, limit: int = 6000) -> str:
+    """Convert arbitrary objects to a loggable string with truncation."""
+
+    def default(o: Any) -> Any:
+        if isinstance(o, (bytes, bytearray)):
+            return o.decode("utf-8", errors="ignore")
+        if hasattr(o, "__dict__"):
+            try:
+                return {k: v for k, v in vars(o).items() if not k.startswith("_")}
+            except Exception:
+                return str(o)
+        return str(o)
+
+    try:
+        text = json.dumps(val, default=default, ensure_ascii=False)
+    except Exception:
+        try:
+            text = str(val)
+        except Exception:
+            text = repr(val)
+
+    if len(text) > limit:
+        return text[:limit] + f"… (truncated {len(text)} chars)"
+    return text
+
+
 def _log_llm_raw_output(resp: Any, raw: str, provider: str, model: Optional[str]) -> None:
     """Log the LLM raw response content in a structured way for debugging."""
 
@@ -268,6 +294,17 @@ def _log_llm_raw_output(resp: Any, raw: str, provider: str, model: Optional[str]
         content = getattr(resp, "content", None)
         snippet = raw if len(raw) <= 1500 else (raw[:1500] + "…")
         meta = getattr(resp, "response_metadata", None)
+
+        response_debug = {
+            "resp_type": type(resp).__name__,
+            "content_type": type(content).__name__ if content is not None else None,
+            "raw_len": len(raw),
+            "content_preview": _safe_stringify_for_log(content, limit=3000),
+            "response_metadata": meta,
+            "resp_dict_keys": sorted(list(getattr(resp, "__dict__", {}).keys())),
+        }
+        response_dump = _safe_stringify_for_log(response_debug, limit=8000)
+
         logger.info(
             "LLM raw output: %s",
             snippet,
@@ -277,6 +314,7 @@ def _log_llm_raw_output(resp: Any, raw: str, provider: str, model: Optional[str]
                 "llm_raw_snippet": snippet,
                 "llm_content_type": type(content or resp).__name__,
                 "llm_response_metadata": meta,
+                "llm_response_dump": response_dump,
             },
         )
     except Exception:
