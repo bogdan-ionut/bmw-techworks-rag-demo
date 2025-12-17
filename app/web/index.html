@@ -161,6 +161,18 @@
       font-weight: 600;
     }
 
+    .stat-label {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .stat-subtext {
+      color: var(--text-tertiary);
+      font-size: 11px;
+      letter-spacing: 0.2px;
+    }
+
     .stat-badge {
       background: rgba(59, 130, 246, 0.1);
       color: var(--accent-primary);
@@ -1123,11 +1135,45 @@
       <div class="header-stats">
         <div class="stat-item">
           <svg class="stat-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-          <span><span class="stat-value" id="stat-retrieved">0</span> Retrieved</span>
+          <div>
+            <div class="stat-label"><span class="stat-value" id="stat-retrieved">0</span> Retrieved</div>
+            <div class="stat-subtext">Profiles</div>
+          </div>
         </div>
         <div class="stat-item">
           <svg class="stat-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-          <span><span class="stat-value" id="stat-latency">0.00s</span> Latency</span>
+          <div>
+            <div class="stat-label"><span class="stat-value" id="stat-pinecone">0.00s</span> Pinecone</div>
+            <div class="stat-subtext">Vector search</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <svg class="stat-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20l9-16-9 7-9-7 9 16z"></path></svg>
+          <div>
+            <div class="stat-label"><span class="stat-value" id="stat-rerank">0.00s</span> Reranker</div>
+            <div class="stat-subtext">Relevance boost</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <svg class="stat-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21l-8-4-8 4V5l8-4 8 4z"></path></svg>
+          <div>
+            <div class="stat-label"><span class="stat-value" id="stat-ai-latency">0.00s</span> AI Analysis</div>
+            <div class="stat-subtext" id="stat-ai-tokens">0 in / 0 out</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <svg class="stat-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="7" height="7" rx="1"></rect><rect x="14" y="13" width="7" height="7" rx="1"></rect><path d="M10 8h4"></path><path d="M17 10v3"></path><path d="M7 14h3"></path></svg>
+          <div>
+            <div class="stat-label">LLM</div>
+            <div class="stat-subtext" id="stat-llm-model">–</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <svg class="stat-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          <div>
+            <div class="stat-label"><span class="stat-value" id="stat-latency">0.00s</span> Total</div>
+            <div class="stat-subtext">Client roundtrip</div>
+          </div>
         </div>
         <div class="stat-badge">DEMO</div>
       </div>
@@ -1249,6 +1295,11 @@
     const insightActions = document.getElementById('insightActions');
     const resultsContainer = document.getElementById('resultsContainer');
     const statRetrieved = document.getElementById('stat-retrieved');
+    const statPinecone = document.getElementById('stat-pinecone');
+    const statRerank = document.getElementById('stat-rerank');
+    const statAiLatency = document.getElementById('stat-ai-latency');
+    const statAiTokens = document.getElementById('stat-ai-tokens');
+    const statLlmModel = document.getElementById('stat-llm-model');
     const statLatency = document.getElementById('stat-latency');
     const copyInsightsBtn = document.getElementById('copyInsights');
 
@@ -1572,6 +1623,18 @@
 
             // Update Stats
             statRetrieved.textContent = data.retrieved_docs || 0;
+            const pineconeSec = Number(data.pinecone_sec ?? data.retrieval_sec ?? 0);
+            const rerankSec = Number(data.rerank_sec ?? 0);
+            const aiLatency = Number(data.llm_sec ?? 0);
+            const promptTokens = Number(data.llm_prompt_tokens ?? 0);
+            const completionTokens = Number(data.llm_completion_tokens ?? 0);
+            const totalTokens = Number(data.llm_total_tokens ?? (promptTokens + completionTokens));
+
+            statPinecone.textContent = `${pineconeSec.toFixed(2)}s`;
+            statRerank.textContent = `${rerankSec.toFixed(2)}s`;
+            statAiLatency.textContent = `${aiLatency.toFixed(2)}s`;
+            statAiTokens.textContent = `${promptTokens} in / ${completionTokens} out (${totalTokens} total)`;
+            statLlmModel.textContent = data.llm_model || data.llm_used || '—';
             statLatency.textContent = `${elapsed}s`;
 
             // Render Results
