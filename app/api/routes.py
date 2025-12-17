@@ -646,16 +646,24 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     effective_max_tokens = max(int(getattr(s, "max_tokens", 0) or 0), SAFE_MIN_LLM_MAX_TOKENS)
 
     llm_call = llm
-    try:
-        llm_call = llm_call.bind(max_tokens=effective_max_tokens)
-    except Exception:
-        pass
+    if selected_provider == "GEMINI":
+        try:
+            # Gemini uses max_output_tokens and rejects unknown fields
+            llm_call = llm_call.bind(max_output_tokens=effective_max_tokens)
+        except Exception:
+            pass
+        # Do NOT pass response_format to Gemini (raises validation errors)
+    else:
+        try:
+            llm_call = llm_call.bind(max_tokens=effective_max_tokens)
+        except Exception:
+            pass
 
-    try:
-        # Works for OpenAI ChatCompletions JSON mode in langchain (ignored by non-OpenAI providers)
-        llm_call = llm_call.bind(response_format={"type": "json_object"})
-    except Exception:
-        pass
+        try:
+            # Works for OpenAI ChatCompletions JSON mode in langchain (ignored by non-OpenAI providers)
+            llm_call = llm_call.bind(response_format={"type": "json_object"})
+        except Exception:
+            pass
 
     tight_system = (
         ANSWER_SYSTEM_PROMPT
