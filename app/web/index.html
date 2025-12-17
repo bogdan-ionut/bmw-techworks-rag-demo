@@ -741,8 +741,15 @@
               signal: abortController.signal,
             });
             const dataAI = await resAI.json();
-            lastAnswerRaw = dataAI.answer || "";
-            answerEl.innerHTML = escapeHtml(lastAnswerRaw).replace(/\n/g, "<br>");
+            const answerText =
+              dataAI.answer_text ||
+              (typeof dataAI.answer === "string"
+                ? dataAI.answer
+                : dataAI.answer?.answer) ||
+              "";
+
+            lastAnswerRaw = answerText;
+            answerEl.innerHTML = escapeHtml(answerText || "No analysis available.").replace(/\n/g, "<br>");
             answerHint.textContent = "Complete";
           } else {
             answerEl.innerHTML = `<span style="color: var(--text-tertiary);">AI Analysis skipped.</span>`;
