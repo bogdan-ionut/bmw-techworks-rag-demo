@@ -1594,10 +1594,9 @@
                           ? `<img src="${avatarUrl}" class="card-avatar" alt="${escapeHtml(profile.full_name)}"/>`
                           : `<div class="card-avatar-fallback">${initials}</div>`
                         }
-                        <div class="match-badge">${scorePct}%</div>
                       </div>
                       <div class="card-info">
-                        <div class="card-name">${escapeHtml(profile.full_name)}</div>
+                        <div class="card-name">${escapeHtml(profile.full_name)} (${scorePct}%)</div>
                         <div class="card-headline">${escapeHtml(profile.headline)}</div>
                       </div>
                     </div>
@@ -1639,115 +1638,96 @@
         const query = searchInput.value.trim();
         if (!query) return;
 
-        // Reset UI
         if (abortController) abortController.abort();
         abortController = new AbortController();
+        const signal = abortController.signal;
 
         searchBtn.disabled = true;
         searchBtnText.innerHTML = '<div class="spinner"></div>';
-        insightStatus.textContent = "Processing...";
+        insightStatus.textContent = "Retrieving...";
         insightStatus.className = "panel-badge processing";
 
-        // Render Skeletons
-        insightsContent.innerHTML = `
-          <div class="loading-skeleton skeleton-title"></div>
-          <div class="loading-skeleton skeleton-text"></div>
-          <div class="loading-skeleton skeleton-text"></div>
-          <div class="loading-skeleton skeleton-text" style="width: 80%"></div>
-        `;
+        // Render skeletons for both panels
+        insightsContent.innerHTML = `<div class="loading-skeleton skeleton-title"></div><div class="loading-skeleton skeleton-text"></div><div class="loading-skeleton skeleton-text"></div>`;
+        resultsContainer.innerHTML = `<div class="cards-grid">${Array(4).fill(0).map(() => `<div class="profile-card"><div class="card-header"><div class="loading-skeleton skeleton-avatar"></div><div class="card-info"><div class="loading-skeleton skeleton-title"></div><div class="loading-skeleton skeleton-text"></div></div></div><div class="loading-skeleton skeleton-text"></div></div>`).join('')}</div>`;
 
-        resultsContainer.innerHTML = `
-           <div class="cards-grid">
-              ${[1,2,3,4].map(() => `
-                <div class="profile-card">
-                  <div class="card-header">
-                     <div class="loading-skeleton skeleton-avatar"></div>
-                     <div class="card-info">
-                        <div class="loading-skeleton skeleton-title"></div>
-                        <div class="loading-skeleton skeleton-text"></div>
-                     </div>
-                  </div>
-                  <div class="loading-skeleton skeleton-text"></div>
-                  <div class="loading-skeleton skeleton-text"></div>
-                </div>
-              `).join('')}
-           </div>
-        `;
+        const startTime = performance.now();
+        const k = sanitizeRetrievalValue();
+        const useAi = aiToggle.checked;
+        const selectedLlmOption = llmModelSelect?.selectedOptions?.[0] || llmModelSelect?.options?.[llmModelSelect.selectedIndex];
+        const llmModel = selectedLlmOption?.value;
+        const llmProvider = selectedLlmOption?.dataset?.provider;
 
         try {
-            const k = sanitizeRetrievalValue();
-            const useAi = aiToggle.checked;
-            const startTime = performance.now();
-            const selectedLlmOption = llmModelSelect?.selectedOptions?.[0] || llmModelSelect?.options?.[llmModelSelect.selectedIndex];
-            const llmModel = selectedLlmOption?.value;
-            const llmProvider = selectedLlmOption?.dataset?.provider;
+            // Step 1: Fetch search results first (fast)
+            const searchRes = await fetch(`/search?q=${encodeURIComponent(query)}&k=${k}`, { signal });
+            if (!searchRes.ok) throw new Error(await searchRes.text());
+            const searchData = await searchRes.json();
 
-            const res = await fetch('/query', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    query,
-                    k,
-                    with_llm: useAi,
-                    llm_provider: llmProvider,
-                    llm_model: llmModel,
-                }),
-                signal: abortController.signal
-            });
-
-            if (!res.ok) throw new Error(await res.text());
-
-            const data = await res.json();
-            const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-
-            // Update Stats
-            statRetrieved.textContent = data.retrieved_docs || 0;
-            const pineconeSec = Number(data.pinecone_sec ?? data.retrieval_sec ?? 0);
-            const rerankSec = Number(data.rerank_sec ?? 0);
-            const aiLatency = Number(data.llm_sec ?? 0);
-            const promptTokens = Number(data.llm_prompt_tokens ?? 0);
-            const completionTokens = Number(data.llm_completion_tokens ?? 0);
-            const totalTokens = Number(data.llm_total_tokens ?? (promptTokens + completionTokens));
-
+            // Update stats from search
+            statRetrieved.textContent = searchData.retrieved_docs || 0;
+            const pineconeSec = Number(searchData.retrieval_sec ?? 0);
             statPinecone.textContent = `${pineconeSec.toFixed(2)}s`;
-            statRerank.textContent = `${rerankSec.toFixed(2)}s`;
-            statAiLatency.textContent = `${aiLatency.toFixed(2)}s`;
-            statAiTokens.textContent = `${promptTokens} in / ${completionTokens} out (${totalTokens} total)`;
-            const llmUsed = data.llm_used || '';
-            const llmModelLabel = data.llm_model || '';
-            statLlmModel.textContent = llmModelLabel
-              ? `${llmUsed ? `${llmUsed} • ` : ''}${llmModelLabel}`
-              : (llmUsed || '—');
-            statLatency.textContent = `${elapsed}s`;
+            statRerank.textContent = `${(searchData.rerank_sec ?? 0).toFixed(2)}s`;
+            statLatency.textContent = `${((performance.now() - startTime) / 1000).toFixed(2)}s`;
 
-            // Render Results
-            renderResults(data);
+            // Render search results immediately
+            renderResults(searchData);
 
             if (useAi) {
-                renderInsights(data);
+                insightStatus.textContent = "AI Analyzing...";
+                insightStatus.className = "panel-badge processing";
+
+                // Step 2: Fetch AI insights (slow, can be aborted)
+                const aiRes = await fetch('/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        query,
+                        k,
+                        with_llm: true,
+                        sources: searchData.sources, // Pass sources to skip retrieval
+                        llm_provider: llmProvider,
+                        llm_model: llmModel,
+                    }),
+                    signal
+                });
+
+                if (!aiRes.ok) throw new Error(await aiRes.text());
+                const aiData = await aiRes.json();
+
+                // Update remaining stats
+                const aiLatency = Number(aiData.llm_sec ?? 0);
+                const promptTokens = Number(aiData.llm_prompt_tokens ?? 0);
+                const completionTokens = Number(aiData.llm_completion_tokens ?? 0);
+                const totalTokens = Number(aiData.llm_total_tokens ?? (promptTokens + completionTokens));
+
+                statAiLatency.textContent = `${aiLatency.toFixed(2)}s`;
+                statAiTokens.textContent = `${promptTokens} in / ${completionTokens} out (${totalTokens} total)`;
+                const llmUsed = aiData.llm_used || '';
+                const llmModelLabel = aiData.llm_model || '';
+                statLlmModel.textContent = llmModelLabel
+                  ? `${llmUsed ? `${llmUsed} • ` : ''}${llmModelLabel}`
+                  : (llmUsed || '—');
+                statLatency.textContent = `${((performance.now() - startTime) / 1000).toFixed(2)}s`;
+
+                renderInsights(aiData);
             } else {
-                insightsContent.innerHTML = `
-                  <div class="empty-state" style="padding: 40px 20px;">
-                    <div class="empty-title">AI Analysis Disabled</div>
-                    <div class="empty-text">Enable the AI toggle to generate insights</div>
-                  </div>
-                `;
+                insightsContent.innerHTML = `<div class="empty-state" style="padding: 40px 20px;"><div class="empty-title">AI Analysis Disabled</div><div class="empty-text">Enable the AI toggle to generate insights</div></div>`;
                 insightStatus.textContent = "Disabled";
                 insightStatus.className = "panel-badge";
                 insightActions.style.display = "none";
             }
-
         } catch (err) {
-            if (err.name === 'AbortError') return;
+            if (err.name === 'AbortError') {
+              console.log('Search aborted.');
+              return;
+            }
             console.error(err);
-            resultsContainer.innerHTML = `
-               <div class="empty-state">
-                  <div class="empty-title" style="color: var(--accent-error)">Error</div>
-                  <div class="empty-text">${escapeHtml(err.message)}</div>
-               </div>
-            `;
+            resultsContainer.innerHTML = `<div class="empty-state"><div class="empty-title">An Error Occurred</div><div class="empty-text">${escapeHtml(err.message)}</div></div>`;
+            insightsContent.innerHTML = `<div class="empty-state"><div class="empty-title">Error</div><div class="empty-text">${escapeHtml(err.message)}</div></div>`;
             insightStatus.textContent = "Error";
-            insightStatus.className = "panel-badge";
+            insightStatus.className = "panel-badge warning";
         } finally {
             searchBtn.disabled = false;
             searchBtnText.textContent = "Search Profiles";
