@@ -6,8 +6,8 @@ profiles (public data) for querying roles, education, etc.
 ## Features
 - Data ingestion from JSONL (S3 support).
 - Embeddings: OpenAI text-embedding-3-large.
-- Vector DB: Chroma.
-- LLM: Switch between OpenAI, Anthropic, Gemini (secrets from AWS).
+- Vector DB: Pinecone.
+- LLM: Switch between OpenAI, Gemini (secrets from AWS).
 - FastAPI endpoint for queries.
 - AWS: S3 for data, Secrets Manager for keys.
 
