@@ -1,795 +1,1645 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BMW TechWorks • Talent Intelligence</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
-    <style>
-      :root {
-        --bg-core: #030407;
-        --bg-glass: rgba(20, 25, 35, 0.65);
-        --bg-card: rgba(30, 35, 45, 0.4);
-        --border-subtle: rgba(255, 255, 255, 0.08);
-        --border-focus: rgba(59, 130, 246, 0.5);
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BMW TechWorks • Talent Intelligence Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-primary: #0a0e17;
+      --bg-secondary: #0f1419;
+      --bg-glass: rgba(15, 20, 35, 0.7);
+      --bg-card: rgba(20, 25, 40, 0.6);
+      --border-subtle: rgba(255, 255, 255, 0.06);
+      --border-medium: rgba(255, 255, 255, 0.1);
+      --border-focus: rgba(59, 130, 246, 0.4);
 
-        --text-primary: #f1f5f9;
-        --text-secondary: #94a3b8;
-        --text-tertiary: #64748b;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-tertiary: #64748b;
+      --text-muted: #475569;
 
-        --accent-bmw: #2E64B5; /* BMW Tech Blueish */
-        --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
-        --accent-glow: 0 0 20px rgba(59, 130, 246, 0.15);
+      --accent-primary: #3b82f6;
+      --accent-secondary: #06b6d4;
+      --accent-success: #10b981;
+      --accent-warning: #f59e0b;
+      --accent-error: #ef4444;
 
-        --holiday-red: #ef4444;
-        --holiday-green: #10b981;
-        --holiday-gold: #f59e0b;
+      --excellent-match: #10b981;
+      --good-match: #3b82f6;
+      --potential-match: #f59e0b;
 
-        --radius-lg: 24px;
-        --radius-md: 16px;
-        --radius-sm: 8px;
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+      --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
+      --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.4);
+      --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.2);
 
-        --font-sans: "Plus Jakarta Sans", sans-serif;
-        --font-mono: "JetBrains Mono", monospace;
-      }
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
 
-      * { box-sizing: border-box; outline: none; }
+      --font-sans: "Inter", -apple-system, sans-serif;
+      --font-mono: "JetBrains Mono", monospace;
 
-      body {
-        margin: 0;
-        font-family: var(--font-sans);
-        background-color: var(--bg-core);
-        /* Technical Grid Background */
-        background-image:
-          linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-        background-size: 40px 40px;
+      --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+      --transition-smooth: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+
+      /* Christmas Specific Vars */
+      --christmas-red: #dc2626;
+      --christmas-green: #16a34a;
+      --christmas-gold: #fbbf24;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-primary);
+      background-image:
+        radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.05) 0%, transparent 50%),
+        radial-gradient(circle at 80% 80%, rgba(6, 182, 212, 0.05) 0%, transparent 50%),
+        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 5px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+    /* Animations */
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    @keyframes shimmer { 0% { background-position: -1000px 0; } 100% { background-position: 1000px 0; } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes snowfall {
+        0% { transform: translateY(-10vh) translateX(0); opacity: 0; }
+        10% { opacity: 1; }
+        90% { opacity: 1; }
+        100% { transform: translateY(110vh) translateX(20px); opacity: 0; }
+    }
+    @keyframes glow {
+        0%, 100% { opacity: 0.8; }
+        50% { opacity: 1; }
+    }
+
+    /* Header */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(24px) saturate(180%);
+      background: rgba(10, 14, 23, 0.85);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 16px 24px;
+    }
+
+    .header-content {
+      max-width: 1800px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .brand-logo {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #3b82f6, #06b6d4);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .brand-divider {
+      width: 1px;
+      height: 24px;
+      background: var(--border-medium);
+    }
+
+    .brand-tagline {
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .header-stats {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .stat-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-tertiary);
+    }
+
+    .stat-value {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .stat-badge {
+      background: rgba(59, 130, 246, 0.1);
+      color: var(--accent-primary);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+
+    /* --- CHRISTMAS BANNER STYLES --- */
+    .christmas-banner {
+        position: relative;
+        background: linear-gradient(135deg,
+          rgba(220, 38, 38, 0.15) 0%,
+          rgba(22, 163, 74, 0.15) 50%,
+          rgba(251, 191, 36, 0.15) 100%);
+        border: 2px solid rgba(251, 191, 36, 0.3);
+        border-radius: 16px;
+        padding: 20px 24px;
+        margin: 20px auto 0;
+        max-width: 1400px;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3),
+                    0 0 20px rgba(251, 191, 36, 0.2);
+        overflow: hidden;
+        animation: fadeIn 0.5s ease;
+    }
+
+    .christmas-banner::before {
+        content: "🎄";
+        position: absolute;
+        left: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 32px;
+        animation: glow 2s ease-in-out infinite;
+    }
+
+    .christmas-banner::after {
+        content: "🎄";
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 32px;
+        animation: glow 2s ease-in-out infinite 1s;
+    }
+
+    .snowflake {
+        position: absolute;
+        color: rgba(255, 255, 255, 0.8);
+        font-size: 20px;
+        user-select: none;
+        pointer-events: none;
+        animation: snowfall linear infinite;
+    }
+
+    .banner-content {
+        text-align: center;
+        padding: 0 50px;
+    }
+
+    .banner-title {
+        font-size: 22px;
+        font-weight: 800;
+        background: linear-gradient(135deg, var(--christmas-red), var(--christmas-gold), var(--christmas-green));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin: 0 0 12px 0;
+        letter-spacing: -0.3px;
+        font-family: "Plus Jakarta Sans", sans-serif;
+    }
+
+    .banner-text {
+        font-size: 14px;
         color: var(--text-primary);
-        min-height: 100vh;
-        display: flex;
-        flex-direction: column;
-        overflow-x: hidden;
+        line-height: 1.6;
+        margin: 0;
+        opacity: 0.95;
+    }
+
+    .banner-text strong {
+        color: var(--christmas-gold);
+        font-weight: 700;
+    }
+    /* --- END CHRISTMAS BANNER --- */
+
+    /* Search Section */
+    .search-section {
+      max-width: 900px;
+      margin: 32px auto 24px;
+      padding: 0 24px;
+      animation: fadeIn 0.6s ease;
+    }
+
+    .search-card {
+      background: var(--bg-glass);
+      backdrop-filter: blur(24px);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xl);
+      padding: 20px;
+      box-shadow: var(--shadow-lg);
+      transition: var(--transition-smooth);
+    }
+
+    .search-card:focus-within {
+      border-color: var(--border-focus);
+      box-shadow: var(--shadow-glow), var(--shadow-lg);
+    }
+
+    textarea {
+      width: 100%;
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      font-size: 15px;
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      resize: none;
+      min-height: 60px;
+      padding: 12px 16px;
+      outline: none;
+    }
+
+    textarea::placeholder {
+      color: var(--text-muted);
+    }
+
+    .search-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 8px 8px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .control-group {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .control-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border-subtle);
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      color: var(--text-secondary);
+      transition: var(--transition-fast);
+    }
+
+    .control-item:hover {
+      background: rgba(255,255,255,0.06);
+      border-color: var(--border-medium);
+    }
+
+    .control-item label {
+      cursor: pointer;
+      user-select: none;
+      font-weight: 500;
+    }
+
+    select {
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      outline: none;
+    }
+
+    /* Toggle Switch */
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: var(--transition-base);
+    }
+
+    .toggle input {
+      display: none;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 18px;
+      height: 18px;
+      background: white;
+      border-radius: 50%;
+      transition: var(--transition-base);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .toggle input:checked + .toggle-slider {
+      transform: translateX(20px);
+    }
+
+    .toggle:has(input:checked) {
+      background: var(--accent-primary);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+      color: white;
+      border: none;
+      padding: 12px 28px;
+      border-radius: var(--radius-md);
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: var(--transition-base);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .btn-primary:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-icon {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* Quick Filters */
+    .quick-filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      max-width: 1000px;
+      margin: 0 auto 40px;
+      padding: 0 24px;
+    }
+
+    .filter-chip {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      padding: 10px 18px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: var(--transition-base);
+    }
+
+    .filter-chip:hover {
+      background: rgba(59, 130, 246, 0.1);
+      border-color: var(--accent-primary);
+      color: var(--accent-primary);
+      transform: translateY(-2px);
+    }
+
+    /* Main Layout */
+    .main-container {
+      max-width: 1800px;
+      margin: 0 auto;
+      padding: 0 24px 60px;
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: 420px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    /* Panel Base Styles */
+    .panel {
+      background: var(--bg-glass);
+      backdrop-filter: blur(24px);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+      box-shadow: var(--shadow-md);
+      animation: fadeIn 0.5s ease;
+    }
+
+    .panel-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(255,255,255,0.01);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-title {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .panel-badge {
+      background: rgba(255,255,255,0.06);
+      color: var(--text-tertiary);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+    }
+
+    .panel-badge.active {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent-success);
+    }
+
+    .panel-badge.processing {
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--accent-primary);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    /* AI Insights Panel */
+    .insights-panel {
+      position: sticky;
+      top: 100px;
+      max-height: calc(100vh - 140px);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .insights-content {
+      padding: 24px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .insight-section {
+      margin-bottom: 24px;
+      animation: slideIn 0.4s ease;
+    }
+
+    .insight-section:last-child {
+      margin-bottom: 0;
+    }
+
+    .insight-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .insight-icon {
+      width: 20px;
+      height: 20px;
+      color: var(--accent-primary);
+    }
+
+    .insight-label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-tertiary);
+    }
+
+    .insight-content {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-secondary);
+    }
+
+    .insight-content.primary {
+      color: var(--text-primary);
+      font-size: 15px;
+    }
+
+    .insight-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .insight-list-item {
+      display: flex;
+      align-items: start;
+      gap: 10px;
+      padding: 10px;
+      background: rgba(255,255,255,0.02);
+      border-radius: var(--radius-sm);
+      border-left: 2px solid var(--accent-primary);
+    }
+
+    .insight-list-item::before {
+      content: "→";
+      color: var(--accent-primary);
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+
+    /* Match Quality Indicators */
+    .match-quality {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .quality-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .quality-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      min-width: 80px;
+    }
+
+    .quality-track {
+      flex: 1;
+      height: 8px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .quality-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .quality-fill.excellent {
+      background: linear-gradient(90deg, var(--excellent-match), #34d399);
+    }
+
+    .quality-fill.good {
+      background: linear-gradient(90deg, var(--good-match), #60a5fa);
+    }
+
+    .quality-fill.potential {
+      background: linear-gradient(90deg, var(--potential-match), #fbbf24);
+    }
+
+    .quality-count {
+      font-size: 13px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+      min-width: 32px;
+      text-align: right;
+    }
+
+    /* Applied Filters Display */
+    .filters-display {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .filter-tag {
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      color: var(--accent-primary);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .filter-tag-icon {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* Panel Actions */
+    .panel-actions {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      gap: 8px;
+      background: rgba(255,255,255,0.01);
+    }
+
+    .action-btn {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: var(--transition-fast);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .action-btn:hover {
+      background: rgba(255,255,255,0.08);
+      color: var(--text-primary);
+      border-color: var(--border-medium);
+    }
+
+    .action-icon {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* Results Section */
+    .results-section {
+      animation: fadeIn 0.6s ease 0.2s backwards;
+    }
+
+    .results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding: 0 4px;
+    }
+
+    .results-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .results-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    /* Match Tier Groups */
+    .tier-group {
+      margin-bottom: 32px;
+    }
+
+    .tier-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding: 12px 16px;
+      background: rgba(255,255,255,0.02);
+      border-radius: var(--radius-md);
+      border-left: 3px solid currentColor;
+    }
+
+    .tier-header.excellent {
+      color: var(--excellent-match);
+    }
+
+    .tier-header.good {
+      color: var(--good-match);
+    }
+
+    .tier-header.potential {
+      color: var(--potential-match);
+    }
+
+    .tier-icon {
+      width: 20px;
+      height: 20px;
+    }
+
+    .tier-title {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      flex: 1;
+    }
+
+    .tier-count {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      background: rgba(255,255,255,0.1);
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+
+    /* Profile Cards Grid */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+    }
+
+    /* Profile Card */
+    .profile-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      transition: var(--transition-smooth);
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+    }
+
+    .profile-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, currentColor, transparent);
+      opacity: 0;
+      transition: var(--transition-base);
+    }
+
+    .profile-card.excellent {
+      color: var(--excellent-match);
+    }
+
+    .profile-card.good {
+      color: var(--good-match);
+    }
+
+    .profile-card.potential {
+      color: var(--potential-match);
+    }
+
+    .profile-card:hover {
+      transform: translateY(-4px);
+      border-color: currentColor;
+      box-shadow: 0 12px 40px -8px rgba(0,0,0,0.4);
+    }
+
+    .profile-card:hover::before {
+      opacity: 1;
+    }
+
+    .card-header {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .card-avatar-wrapper {
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .card-avatar {
+      width: 64px;
+      height: 64px;
+      border-radius: 12px;
+      object-fit: cover;
+      background: var(--bg-secondary);
+      border: 2px solid var(--border-medium);
+    }
+
+    .card-avatar-fallback {
+      width: 64px;
+      height: 64px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #334155, #1e293b);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: var(--text-secondary);
+      border: 2px solid var(--border-medium);
+      font-size: 20px;
+    }
+
+    .match-badge {
+      position: absolute;
+      bottom: -4px;
+      right: -4px;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: currentColor;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      color: white;
+      border: 2px solid var(--bg-card);
+    }
+
+    .card-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .card-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .card-headline {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .card-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+
+    .card-tag {
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      color: var(--accent-primary);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .card-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 16px;
+      font-size: 12px;
+      color: var(--text-tertiary);
+    }
+
+    .meta-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .meta-icon {
+      width: 14px;
+      height: 14px;
+      opacity: 0.6;
+    }
+
+    .card-match-reason {
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      margin-bottom: 16px;
+    }
+
+    .match-reason-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .match-reason-text {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 8px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .card-action-btn {
+      flex: 1;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      padding: 10px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: var(--transition-fast);
+      text-decoration: none;
+      text-align: center;
+    }
+
+    .card-action-btn:hover {
+      background: rgba(255,255,255,0.08);
+      color: var(--text-primary);
+      border-color: var(--border-medium);
+    }
+
+    .card-action-btn.primary {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: rgba(59, 130, 246, 0.3);
+      color: var(--accent-primary);
+    }
+
+    .card-action-btn.primary:hover {
+      background: rgba(59, 130, 246, 0.25);
+    }
+
+    /* Empty States */
+    .empty-state {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 80px 40px;
+      color: var(--text-tertiary);
+    }
+
+    .empty-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 20px;
+      opacity: 0.3;
+    }
+
+    .empty-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .empty-text {
+      font-size: 14px;
+      color: var(--text-tertiary);
+    }
+
+    /* Loading States */
+    .loading-skeleton {
+      background: linear-gradient(90deg, rgba(255,255,255,0.02) 25%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0.02) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: var(--radius-sm);
+    }
+
+    .skeleton-text {
+      height: 14px;
+      margin-bottom: 8px;
+    }
+
+    .skeleton-title {
+      height: 20px;
+      width: 70%;
+      margin-bottom: 12px;
+    }
+
+    .skeleton-avatar {
+      width: 64px;
+      height: 64px;
+      border-radius: 12px;
+    }
+
+    /* Spinner */
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    /* Responsive */
+    @media (max-width: 1400px) {
+      .content-grid {
+        grid-template-columns: 380px 1fr;
+      }
+    }
+
+    @media (max-width: 1200px) {
+      .content-grid {
+        grid-template-columns: 1fr;
       }
 
-      /* Scrollbar elegant */
-      ::-webkit-scrollbar { width: 8px; }
-      ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
-      ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+      .insights-panel {
+        position: static;
+        max-height: none;
+      }
+    }
 
-      /* Animations */
-      @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-      @keyframes snowfall { 0% { transform: translateY(-10vh) translateX(0); opacity: 0; } 20% { opacity: 0.6; } 100% { transform: translateY(100vh) translateX(20px); opacity: 0; } }
+    @media (max-width: 768px) {
+      .header-stats {
+        display: none;
+      }
 
-      /* Header */
-      header {
-        position: sticky;
-        top: 0;
-        z-index: 50;
-        padding: 16px 5vw;
-        backdrop-filter: blur(20px);
-        background: rgba(3, 4, 7, 0.8);
-        border-bottom: 1px solid var(--border-subtle);
-        display: flex;
-        align-items: center;
+      .search-controls {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .control-group {
         justify-content: space-between;
       }
 
-      .brand-area { display: flex; align-items: center; gap: 16px; }
-      .brand { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: white; }
-      .brand span { color: var(--text-tertiary); font-weight: 400; }
-
-      .badge {
-        background: rgba(59, 130, 246, 0.1);
-        color: #60a5fa;
-        border: 1px solid rgba(59, 130, 246, 0.2);
-        padding: 4px 10px;
-        border-radius: 100px;
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+      .cards-grid {
+        grid-template-columns: 1fr;
       }
 
-      .meta {
-        display: flex; gap: 16px;
-        font-family: var(--font-mono);
-        font-size: 11px;
-        color: var(--text-tertiary);
-      }
-      .meta span { display: flex; align-items: center; gap: 6px; }
-      .meta-val { color: var(--text-secondary); }
-
-      /* Christmas Notice - Refined */
-      .christmas-wrapper {
-        position: relative;
-        margin: 24px auto 10px;
-        max-width: 900px;
-        width: 90%;
-      }
-      .christmas-banner {
-        position: relative;
-        background: radial-gradient(circle at top right, rgba(220, 38, 38, 0.08), transparent 40%),
-                    radial-gradient(circle at bottom left, rgba(16, 185, 129, 0.08), transparent 40%),
-                    rgba(255,255,255,0.02);
-        border: 1px solid rgba(251, 191, 36, 0.2);
-        border-radius: var(--radius-md);
-        padding: 16px 24px;
-        backdrop-filter: blur(10px);
-        overflow: hidden;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 20px;
-        text-align: center;
-      }
-      .christmas-text { font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
-      .christmas-text strong { color: var(--holiday-gold); font-weight: 600; }
-      .snowflake { position: absolute; color: white; opacity: 0.3; font-size: 14px; pointer-events: none; animation: snowfall linear infinite; }
-
-      /* Search Area */
-      .search-container {
-        width: 100%;
-        max-width: 800px;
-        margin: 30px auto 20px;
-        padding: 0 20px;
-        position: relative;
-        z-index: 10;
-      }
-
-      .input-wrap {
-        background: var(--bg-glass);
-        backdrop-filter: blur(20px);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-lg);
-        padding: 12px;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        box-shadow: 0 20px 40px -10px rgba(0,0,0,0.5);
-        display: flex;
+      .results-header {
         flex-direction: column;
+        align-items: flex-start;
         gap: 12px;
       }
-
-      .input-wrap:focus-within {
-        border-color: var(--border-focus);
-        box-shadow: var(--accent-glow), 0 30px 60px -12px rgba(0,0,0,0.6);
-        transform: translateY(-2px);
-      }
-
-      textarea {
-        background: transparent;
-        border: none;
-        color: white;
-        font-size: 16px;
-        font-family: var(--font-sans);
-        line-height: 1.5;
-        padding: 12px 16px;
-        resize: none;
-        min-height: 56px;
-        width: 100%;
-      }
-      textarea::placeholder { color: rgba(255,255,255,0.25); }
-
-      .input-footer {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0 8px 4px;
-      }
-
-      .controls { display: flex; align-items: center; gap: 12px; }
-
-      .ctrl-pill {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        background: rgba(255,255,255,0.03);
-        border: 1px solid var(--border-subtle);
-        padding: 6px 10px;
-        border-radius: 8px;
-        font-size: 12px;
-        color: var(--text-secondary);
-        transition: 0.2s;
-      }
-      .ctrl-pill:hover { background: rgba(255,255,255,0.06); }
-
-      select {
-        background: transparent;
-        border: none;
-        color: var(--text-primary);
-        font-family: var(--font-mono);
-        font-size: 12px;
-        cursor: pointer;
-      }
-
-      /* Custom Toggle */
-      .toggle { cursor: pointer; display: flex; align-items: center; gap: 8px; user-select: none; }
-      .toggle input { display: none; }
-      .toggle-track {
-        width: 32px; height: 18px; background: rgba(255,255,255,0.1);
-        border-radius: 99px; position: relative; transition: 0.3s;
-      }
-      .toggle-thumb {
-        width: 14px; height: 14px; background: white; border-radius: 50%;
-        position: absolute; top: 2px; left: 2px; transition: 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-      }
-      .toggle input:checked + .toggle-track { background: var(--accent-bmw); }
-      .toggle input:checked + .toggle-track .toggle-thumb { transform: translateX(14px); }
-
-      button.primary {
-        background: var(--text-primary);
-        color: black;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 12px;
-        font-weight: 700;
-        font-size: 13px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        transition: all 0.2s;
-      }
-      button.primary:hover { opacity: 0.9; transform: scale(1.02); }
-      button.primary:active { transform: scale(0.98); }
-      button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
-
-      /* Chips */
-      .chips {
-        display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
-        max-width: 900px; margin: 0 auto 40px; padding: 0 20px;
-      }
-      .chip {
-        background: rgba(255,255,255,0.03);
-        border: 1px solid var(--border-subtle);
-        color: var(--text-secondary);
-        padding: 8px 16px;
-        border-radius: 100px;
-        font-size: 13px;
-        cursor: pointer;
-        transition: all 0.2s;
-      }
-      .chip:hover {
-        background: rgba(255,255,255,0.08);
-        color: white;
-        border-color: rgba(255,255,255,0.2);
-        transform: translateY(-1px);
-      }
-
-      /* Main Layout */
-      main {
-        flex: 1;
-        padding: 0 3vw 60px;
-        max-width: 1800px;
-        width: 100%;
-        margin: 0 auto;
-      }
-
-      .grid-layout {
-        display: grid;
-        grid-template-columns: 400px 1fr;
-        gap: 24px;
-        align-items: start;
-      }
-
-      /* Panels */
-      .panel {
-        background: var(--bg-glass);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-md);
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        height: calc(100vh - 350px);
-        min-height: 500px;
-        position: sticky;
-        top: 100px;
-      }
-
-      .panel-header {
-        padding: 16px 20px;
-        border-bottom: 1px solid var(--border-subtle);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background: rgba(255,255,255,0.01);
-      }
-
-      .panel-title {
-        font-size: 13px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-        color: var(--text-tertiary);
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .panel-title svg { opacity: 0.7; }
-
-      .status-pill {
-        font-size: 11px;
-        padding: 4px 8px;
-        border-radius: 6px;
-        background: rgba(255,255,255,0.05);
-        color: var(--text-tertiary);
-        font-family: var(--font-mono);
-      }
-
-      .panel-content {
-        padding: 20px;
-        overflow-y: auto;
-        flex: 1;
-      }
-
-      /* AI Answer Styling */
-      .ai-response {
-        font-size: 15px;
-        line-height: 1.7;
-        color: #e2e8f0;
-        white-space: pre-wrap;
-      }
-      .ai-response.placeholder { color: var(--text-tertiary); font-style: italic; }
-
-      .ai-tools {
-        padding: 12px 20px;
-        border-top: 1px solid var(--border-subtle);
-        display: flex;
-        justify-content: flex-end;
-      }
-      .icon-btn {
-        background: transparent;
-        border: 1px solid transparent;
-        color: var(--text-tertiary);
-        padding: 6px;
-        border-radius: 6px;
-        cursor: pointer;
-        transition: 0.2s;
-      }
-      .icon-btn:hover { color: white; background: rgba(255,255,255,0.05); }
-
-      /* Profiles Grid */
-      .profiles-container {
-        /* No fixed height unlike left panel, flows naturally */
-      }
-      .profiles-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-        gap: 16px;
-      }
-
-      /* Profile Card */
-      .card {
-        background: var(--bg-card);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-md);
-        padding: 20px;
-        transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
-        position: relative;
-        overflow: hidden;
-        animation: fadeIn 0.4s ease backwards;
-      }
-      .card:hover {
-        transform: translateY(-4px);
-        border-color: rgba(59, 130, 246, 0.3);
-        box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
-        background: rgba(35, 40, 55, 0.6);
-      }
-      .card::before {
-        content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 2px;
-        background: linear-gradient(90deg, transparent, var(--accent-bmw), transparent);
-        opacity: 0; transition: 0.3s;
-      }
-      .card:hover::before { opacity: 1; }
-
-      .card-header { display: flex; gap: 16px; margin-bottom: 16px; }
-
-      .avatar-wrapper { position: relative; }
-      .avatar {
-        width: 56px; height: 56px; border-radius: 14px; object-fit: cover;
-        background: #1e293b; border: 1px solid rgba(255,255,255,0.1);
-      }
-      .avatar-fallback {
-        width: 56px; height: 56px; border-radius: 14px;
-        background: linear-gradient(135deg, #334155, #1e293b);
-        display: flex; align-items: center; justify-content: center;
-        font-weight: 700; color: #94a3b8; border: 1px solid rgba(255,255,255,0.1);
-      }
-
-      .card-info h3 { margin: 0 0 4px; font-size: 16px; font-weight: 600; color: white; }
-      .card-headline { font-size: 13px; color: var(--text-secondary); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-
-      .card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
-      .tag {
-        font-size: 11px; font-weight: 600; padding: 4px 8px; border-radius: 6px;
-        background: rgba(59, 130, 246, 0.1); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.2);
-      }
-
-      .card-meta {
-        display: grid; gap: 8px; font-size: 12px; color: var(--text-tertiary); margin-bottom: 16px;
-      }
-      .meta-item { display: flex; align-items: center; gap: 8px; }
-      .meta-item svg { opacity: 0.6; }
-
-      .card-actions {
-        display: flex; gap: 8px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 12px;
-      }
-      .action-btn {
-        flex: 1;
-        background: rgba(255,255,255,0.03);
-        border: 1px solid rgba(255,255,255,0.1);
-        color: var(--text-secondary);
-        padding: 8px;
-        border-radius: 8px;
-        font-size: 12px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: 0.2s;
-        text-align: center;
-        text-decoration: none;
-      }
-      .action-btn:hover { background: rgba(255,255,255,0.08); color: white; }
-      .action-btn.accent { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
-      .action-btn.accent:hover { background: rgba(59, 130, 246, 0.25); }
-
-      .empty-state {
-        grid-column: 1/-1;
-        text-align: center;
-        padding: 60px;
-        color: var(--text-tertiary);
-        font-size: 14px;
-        background: var(--bg-glass);
-        border-radius: var(--radius-md);
-        border: 1px dashed var(--border-subtle);
-      }
-
-      /* Responsive */
-      @media (max-width: 1100px) {
-        .grid-layout { grid-template-columns: 1fr; }
-        .panel { height: auto; min-height: 300px; position: static; }
-      }
-    </style>
-  </head>
-  <body>
-    <header>
-      <div class="brand-area">
-        <div class="brand">BMW <span>TechWorks</span></div>
-        <div class="badge">Talent Intelligence</div>
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <div class="brand-section">
+        <div class="brand-logo">BMW TechWorks</div>
+        <div class="brand-divider"></div>
+        <div class="brand-tagline">Talent Intelligence Platform</div>
       </div>
-      <div class="meta">
-        <span title="Docs Retrieved"><span class="meta-val" id="meta-docs">0</span> Docs</span>
-        <span title="Latency"><span class="meta-val" id="meta-time">0.00s</span> Latency</span>
-      </div>
-    </header>
-
-    <div class="christmas-wrapper">
-      <div class="christmas-banner">
-        <div class="snowflake" style="left: 10%; animation-duration: 8s;">❄️</div>
-        <div class="snowflake" style="left: 30%; animation-duration: 12s; animation-delay: 2s;">❄️</div>
-        <div class="snowflake" style="left: 70%; animation-duration: 10s; animation-delay: 1s;">❄️</div>
-        <div class="snowflake" style="left: 90%; animation-duration: 14s; animation-delay: 3s;">❄️</div>
-
-        <div class="banner-content">
-          <h2 class="banner-title">🎄 Season's Greetings & Demo Disclaimer 🎄</h2>
-          <p class="banner-text">
-            This project is <strong>solely for demonstration purposes</strong> for the technical interview with <strong>Ionut</strong> and <strong>Alexandru</strong>.<br>
-            All data and functionality shown here are part of a proof-of-concept demo and will be deleted after the interview process.
-          </p>
+      <div class="header-stats">
+        <div class="stat-item">
+          <svg class="stat-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          <span><span class="stat-value" id="stat-retrieved">0</span> Retrieved</span>
         </div>
+        <div class="stat-item">
+          <svg class="stat-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          <span><span class="stat-value" id="stat-latency">0.00s</span> Latency</span>
+        </div>
+        <div class="stat-badge">DEMO</div>
       </div>
     </div>
+  </header>
 
-    <div class="search-container">
-      <div class="input-wrap">
-        <textarea id="q" placeholder="Describe the ideal candidate... (e.g., 'Senior Python Engineers in Cluj with Cloud experience')"></textarea>
+  <div class="christmas-banner">
+      <div class="snowflake" style="left: 15%; animation-duration: 8s; animation-delay: 0s;">❄️</div>
+      <div class="snowflake" style="left: 35%; animation-duration: 10s; animation-delay: 2s;">❄️</div>
+      <div class="snowflake" style="left: 55%; animation-duration: 12s; animation-delay: 4s;">❄️</div>
+      <div class="snowflake" style="left: 75%; animation-duration: 9s; animation-delay: 1s;">❄️</div>
+      <div class="snowflake" style="left: 85%; animation-duration: 11s; animation-delay: 3s;">❄️</div>
 
-        <div class="input-footer">
-          <div class="controls">
-            <div class="ctrl-pill">
-              <span>Cards:</span>
-              <select id="cards-k">
-                <option value="8">8</option>
-                <option value="16">16</option>
-                <option value="24" selected>24</option>
-                <option value="32">32</option>
-              </select>
-            </div>
-            <label class="ctrl-pill toggle">
-              <input type="checkbox" id="with-ai" checked />
-              <div class="toggle-track"><div class="toggle-thumb"></div></div>
-              <span>AI Analysis</span>
+      <div class="banner-content">
+        <h2 class="banner-title">🎄 Season's Greetings & Demo Disclaimer 🎄</h2>
+        <p class="banner-text">
+          This project is <strong>solely for demonstration purposes</strong> for the technical interview with <strong>Ionut</strong> and <strong>Alexandru</strong>.<br>
+          All data and functionality shown here are part of a proof-of-concept demo and will be deleted after the interview process.
+        </p>
+      </div>
+  </div>
+  <div class="search-section">
+    <div class="search-card">
+      <textarea id="searchInput" placeholder="Describe your ideal candidate... (e.g., 'Senior Machine Learning Engineers in Romania with NLP experience')"></textarea>
+      <div class="search-controls">
+        <div class="control-group">
+          <div class="control-item">
+            <label for="retrievalK">Retrieve:</label>
+            <select id="retrievalK">
+              <option value="16">16</option>
+              <option value="24" selected>24</option>
+              <option value="32">32</option>
+              <option value="48">48</option>
+            </select>
+          </div>
+          <div class="control-item">
+            <label for="aiToggle">AI Analysis</label>
+            <label class="toggle">
+              <input type="checkbox" id="aiToggle" checked />
+              <div class="toggle-slider"></div>
             </label>
           </div>
+        </div>
+        <button class="btn-primary" id="searchBtn">
+          <span id="searchBtnText">Search Profiles</span>
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+        </button>
+      </div>
+    </div>
+  </div>
 
-          <button class="primary" id="ask" type="button">
-            <span id="btn-text">Search Profiles</span>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+  <div class="quick-filters">
+    <div class="filter-chip" data-query="Senior Python developers with cloud experience">Cloud Engineers</div>
+    <div class="filter-chip" data-query="Machine learning engineers with NLP expertise">ML/NLP Experts</div>
+    <div class="filter-chip" data-query="Full stack developers with React and Node.js">Full Stack Developers</div>
+    <div class="filter-chip" data-query="Data scientists with computer vision skills">Computer Vision</div>
+  </div>
+
+  <main class="main-container">
+    <div class="content-grid">
+      <div class="panel insights-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>
+            AI Intelligence
+          </div>
+          <div class="panel-badge" id="insightStatus">Idle</div>
+        </div>
+        <div class="insights-content" id="insightsContent">
+          <div class="empty-state" style="padding: 40px 20px;">
+            <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+            </svg>
+            <div class="empty-title">AI Analysis Ready</div>
+            <div class="empty-text">Run a search to see intelligent insights about candidates</div>
+          </div>
+        </div>
+        <div class="panel-actions" id="insightActions" style="display: none;">
+          <button class="action-btn" id="copyInsights">
+            <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path></svg>
+            Copy
           </button>
         </div>
       </div>
-    </div>
 
-    <div class="chips">
-      <div class="chip" data-q="Find Infrastructure Engineers with their photos and roles">Infrastructure Engineers</div>
-      <div class="chip" data-q="Show me master's graduates from UBB working here">UBB Masters Graduates</div>
-      <div class="chip" data-q="Who has Java or Python in their headline?">Skills: Java/Python</div>
-      <div class="chip" data-q="Python developers with eyeglasses">Computer Vision: Eyeglasses</div>
-    </div>
-
-    <main>
-      <div class="grid-layout">
-        <section class="panel">
-          <div class="panel-header">
-            <div class="panel-title">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 16a6 6 0 1 1 6-6 6 6 0 0 1-6 6z"/></svg>
-              AI Insights
+      <div class="results-section">
+        <div class="results-header">
+          <div class="results-title">Candidate Matches</div>
+          <div class="results-actions">
             </div>
-            <div class="status-pill" id="answer-hint">Idle</div>
-          </div>
-          <div class="panel-content">
-            <div class="ai-response placeholder" id="answer">Synthesized analysis will appear here after your query...</div>
-          </div>
-          <div class="ai-tools">
-            <button class="icon-btn" id="copy-answer" title="Copy Analysis">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            </button>
-          </div>
-        </section>
-
-        <div class="profiles-container">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; padding:0 8px;">
-            <h2 style="font-size:16px; font-weight:600; margin:0; color:white;">Identified Candidates</h2>
-            <span class="status-pill" id="card-count">0 found</span>
-          </div>
-
-          <div class="profiles-grid" id="profiles">
-            <div class="empty-state">Enter a query above to start sourcing talent.</div>
+        </div>
+        <div id="resultsContainer">
+          <div class="empty-state">
+            <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+            <div class="empty-title">No Results Yet</div>
+            <div class="empty-text">Enter a search query above to find matching candidates</div>
           </div>
         </div>
       </div>
-    </main>
+    </div>
+  </main>
 
-    <script>
-      /* --- LOGIC PRESERVED FROM ORIGINAL --- */
-      const askBtn = document.getElementById("ask");
-      const btnText = document.getElementById("btn-text");
-      const qEl = document.getElementById("q");
-      const answerEl = document.getElementById("answer");
-      const answerHint = document.getElementById("answer-hint");
-      const profilesEl = document.getElementById("profiles");
-      const cardCountEl = document.getElementById("card-count");
-      const copyAnswerBtn = document.getElementById("copy-answer");
+  <script>
+    // State management
+    let currentResults = null;
+    let currentInsights = null;
+    let abortController = null;
 
-      const metaDocs = document.getElementById("meta-docs");
-      const metaTime = document.getElementById("meta-time");
-      const cardsKEl = document.getElementById("cards-k");
-      const withAiEl = document.getElementById("with-ai");
+    // DOM Elements
+    const searchInput = document.getElementById('searchInput');
+    const searchBtn = document.getElementById('searchBtn');
+    const searchBtnText = document.getElementById('searchBtnText');
+    const retrievalK = document.getElementById('retrievalK');
+    const aiToggle = document.getElementById('aiToggle');
+    const insightsContent = document.getElementById('insightsContent');
+    const insightStatus = document.getElementById('insightStatus');
+    const insightActions = document.getElementById('insightActions');
+    const resultsContainer = document.getElementById('resultsContainer');
+    const statRetrieved = document.getElementById('stat-retrieved');
+    const statLatency = document.getElementById('stat-latency');
+    const copyInsightsBtn = document.getElementById('copyInsights');
 
-      let lastAnswerRaw = "";
-      let abortController = null;
+    // Utility functions
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
 
-      const fallbackAvatar = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
-        <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'>
-          <rect width='64' height='64' fill='#1e293b' />
-        </svg>
-      `)}`;
+    function getInitials(name) {
+      if (!name) return '?';
+      return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || '?';
+    }
 
-      function escapeHtml(str = "") {
-        return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    function getMatchTier(score) {
+      if (score >= 0.85) return { tier: 'excellent', label: 'Excellent Match', icon: '★' };
+      if (score >= 0.75) return { tier: 'good', label: 'Good Match', icon: '◆' };
+      return { tier: 'potential', label: 'Potential Match', icon: '○' };
+    }
+
+    function resolveAvatarUrl(profile) {
+      const img = (profile.profile_image_url || profile.profile_image_s3_url || '').trim();
+      if (!img) return null;
+      if (img.includes('media.licdn.com')) {
+        return `https://images.weserv.nl/?url=${encodeURIComponent(img.replace(/^https?:\/\//, ''))}&w=320&h=320&fit=cover`;
       }
+      return img;
+    }
 
-      function normalizeLinkedIn(url = "") {
-        const clean = url.trim().split(/[?#]/)[0].replace(/\/$/, "");
-        try {
-          const parsed = new URL(clean.toLowerCase());
-          const host = parsed.hostname.endsWith("linkedin.com") ? "linkedin.com" : parsed.hostname;
-          const path = parsed.pathname.startsWith("/in/") ? parsed.pathname : `/in/${parsed.pathname.replace(/^\//, "")}`;
-          return `https://${host}${path.replace(/\/$/, "")}`;
-        } catch (e) { return clean.toLowerCase(); }
+    async function copyToClipboard(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (e) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        return true;
       }
+    }
 
-      async function copyToClipboard(text) {
-        try {
-          await navigator.clipboard.writeText(text);
-        } catch (e) {
-          const ta = document.createElement("textarea");
-          ta.value = text;
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand("copy");
-          document.body.removeChild(ta);
-        }
-      }
+    // Render functions
+    function renderInsights(data) {
+      const answer = data.answer || {};
+      const answerText = answer.answer || data.answer_text || (typeof answer === 'string' ? answer : '');
+      const filtersApplied = answer.filters_applied || data.filters_applied;
 
-      function getInitials(name = "") {
-        return name.split(" ").filter(Boolean).map((n) => n[0]).join("").substring(0, 2).toUpperCase() || "?";
-      }
+      const sources = data.sources || [];
+      const tierCounts = { excellent: 0, good: 0, potential: 0 };
+      sources.forEach(s => {
+        const { tier } = getMatchTier(s.score || 0);
+        tierCounts[tier]++;
+      });
 
-      function resolveAvatarSrc(s) {
-        const img = (s.profile_image_url || s.profile_image_s3_url || "").trim();
-        if (!img) return "";
-        if (img.includes("media.licdn.com")) {
-          return `https://images.weserv.nl/?url=${encodeURIComponent(img.replace(/^https?:\/\//, ""))}&w=320&h=320&fit=cover`;
-        }
-        return escapeHtml(img);
-      }
+      let html = '';
 
-      function buildCard(s) {
-        const avatar = resolveAvatarSrc(s);
-        const initials = getInitials(s.full_name);
-        const profileUrl = s.profile_url || "";
-        const vmid = s.vmid || "";
-
-        const card = document.createElement("div");
-        card.className = "card";
-
-        // Icons
-        const iconMap = "<svg width='14' height='14' fill='none' stroke='currentColor' stroke-width='2' viewBox='0 0 24 24'><path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z'></path><circle cx='12' cy='10' r='3'></circle></svg>";
-        const iconSchool = "<svg width='14' height='14' fill='none' stroke='currentColor' stroke-width='2' viewBox='0 0 24 24'><path d='M22 10v6M2 10l10-5 10 5-10 5z'></path><path d='M6 12v5c3 3 9 3 12 0v-5'></path></svg>";
-
-        card.innerHTML = `
-          <div class="card-header">
-            <div class="avatar-wrapper">
-              ${avatar ?
-                `<img class="avatar" src="${avatar}" alt="img" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
-                 <div class="avatar-fallback" style="display:none">${initials}</div>` :
-                `<div class="avatar-fallback">${initials}</div>`
-              }
+      // Match Quality Overview
+      html += `
+        <div class="insight-section">
+          <div class="insight-header">
+            <svg class="insight-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 11l3 3L22 4"></path>
+              <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"></path>
+            </svg>
+            <span class="insight-label">Match Quality</span>
+          </div>
+          <div class="match-quality">
+            <div class="quality-bar">
+              <span class="quality-label">Excellent</span>
+              <div class="quality-track">
+                <div class="quality-fill excellent" style="width: ${(sources.length ? (tierCounts.excellent / sources.length * 100) : 0)}%"></div>
+              </div>
+              <span class="quality-count">${tierCounts.excellent}</span>
             </div>
-            <div class="card-info">
-              <h3>${escapeHtml(s.full_name || "Candidate")}</h3>
-              <div class="card-headline">${escapeHtml(s.headline || "No headline available")}</div>
+            <div class="quality-bar">
+              <span class="quality-label">Good</span>
+              <div class="quality-track">
+                <div class="quality-fill good" style="width: ${(sources.length ? (tierCounts.good / sources.length * 100) : 0)}%"></div>
+              </div>
+              <span class="quality-count">${tierCounts.good}</span>
+            </div>
+            <div class="quality-bar">
+              <span class="quality-label">Potential</span>
+              <div class="quality-track">
+                <div class="quality-fill potential" style="width: ${(sources.length ? (tierCounts.potential / sources.length * 100) : 0)}%"></div>
+              </div>
+              <span class="quality-count">${tierCounts.potential}</span>
             </div>
           </div>
+        </div>
+      `;
 
-          <div class="card-tags">
-            ${s.job_title ? `<span class="tag">${escapeHtml(s.job_title)}</span>` : ""}
-            ${s.job_title_2 ? `<span class="tag" style="opacity:0.7">${escapeHtml(s.job_title_2)}</span>` : ""}
-          </div>
-
-          <div class="card-meta">
-            ${s.location ? `<div class="meta-item">${iconMap} ${escapeHtml(s.location)}</div>` : ""}
-            ${s.school ? `<div class="meta-item">${iconSchool} ${escapeHtml(s.school)}</div>` : ""}
-          </div>
-
-          <div class="card-actions">
-            ${profileUrl ? `<a href="${escapeHtml(profileUrl)}" target="_blank" class="action-btn accent">LinkedIn ↗</a>` : ''}
-            <button class="action-btn" data-copy="${escapeHtml(vmid)}">ID</button>
-            <button class="action-btn" data-copy="${escapeHtml(profileUrl)}">URL</button>
-          </div>
+      // Applied Filters
+      if (filtersApplied && Object.keys(filtersApplied).length > 0) {
+        html += `
+          <div class="insight-section">
+            <div class="insight-header">
+              <svg class="insight-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"></path>
+              </svg>
+              <span class="insight-label">Applied Filters</span>
+            </div>
+            <div class="filters-display">
         `;
 
-        card.querySelectorAll("button[data-copy]").forEach((b) => {
-          b.addEventListener("click", async () => {
-            const val = b.getAttribute("data-copy");
-            if (!val) return;
-            await copyToClipboard(val);
-            const original = b.textContent;
-            b.textContent = "✓";
-            b.style.color = "#10b981";
-            setTimeout(() => { b.textContent = original; b.style.color = ""; }, 1000);
-          });
+        // Handle MongoDB style filters if present (simplified visualization)
+        if (filtersApplied['$and']) {
+            filtersApplied['$and'].forEach(f => {
+                const [k, v] = Object.entries(f)[0];
+                const valStr = typeof v === 'object' ? JSON.stringify(v) : v;
+                html += `
+                  <div class="filter-tag">
+                    <svg class="filter-tag-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"></path></svg>
+                    ${k}: ${valStr}
+                  </div>`;
+            });
+        } else {
+            Object.entries(filtersApplied).forEach(([k, v]) => {
+                const valStr = typeof v === 'object' ? JSON.stringify(v) : v;
+                 html += `
+                  <div class="filter-tag">
+                    <svg class="filter-tag-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"></path></svg>
+                    ${k}: ${valStr}
+                  </div>`;
+            });
+        }
+
+        html += `
+            </div>
+          </div>
+        `;
+      }
+
+      // AI Analysis Text
+      if (answerText) {
+          html += `
+            <div class="insight-section">
+              <div class="insight-header">
+                <svg class="insight-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                </svg>
+                <span class="insight-label">AI Analysis</span>
+              </div>
+              <div class="insight-content primary">
+                ${escapeHtml(answerText).replace(/\n/g, '<br>')}
+              </div>
+            </div>
+          `;
+      }
+
+      insightsContent.innerHTML = html;
+      insightStatus.textContent = "Ready";
+      insightStatus.className = "panel-badge active";
+      insightActions.style.display = "flex";
+      currentInsights = answerText;
+    }
+
+    function renderResults(data) {
+        const sources = data.sources || [];
+
+        if (sources.length === 0) {
+            resultsContainer.innerHTML = `
+              <div class="empty-state">
+                <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M10 21h4a2 2 0 002-2v-1.28a1 1 0 00-.2-.64l-1.92-2.56a1 1 0 010-1.28l1.92-2.56a1 1 0 00.2-.64V8a2 2 0 00-2-2h-4a2 2 0 00-2 2v1.28a1 1 0 00.2.64l1.92 2.56a1 1 0 010 1.28l-1.92 2.56a1 1 0 00-.2.64V19a2 2 0 002 2z"></path>
+                </svg>
+                <div class="empty-title">No Matches Found</div>
+                <div class="empty-text">Try adjusting your search criteria</div>
+              </div>
+            `;
+            return;
+        }
+
+        // Group by tier
+        const tiers = { excellent: [], good: [], potential: [] };
+        sources.forEach(s => {
+            const { tier } = getMatchTier(s.score || 0);
+            tiers[tier].push(s);
         });
 
-        return card;
-      }
+        let html = '';
 
-      function setLoading(isLoading) {
-        askBtn.disabled = isLoading;
-        btnText.textContent = isLoading ? "Processing..." : "Search Profiles";
-        answerEl.style.opacity = isLoading ? 0.5 : 1;
-        profilesEl.style.opacity = isLoading ? 0.7 : 1;
-      }
+        const tierConfig = {
+            excellent: { title: 'Excellent Matches', icon: '★', class: 'excellent' },
+            good: { title: 'Good Matches', icon: '◆', class: 'good' },
+            potential: { title: 'Potential Matches', icon: '○', class: 'potential' }
+        };
 
-      // Mock function strictly for UI demo purpose if backend is missing,
-      // replace with your real fetch calls from original script
-      async function doSearch(query) {
-         // Logic remains same as your original script
-         // Assuming fetch logic is here...
-         return { sources: [], retrieved_docs: 0, latency_sec: 0.1 };
-      }
+        Object.entries(tierConfig).forEach(([tierKey, config]) => {
+            const candidates = tiers[tierKey];
+            if (candidates.length === 0) return;
 
-      async function ask() {
-        const query = (qEl.value || "").trim();
+            html += `
+              <div class="tier-group">
+                <div class="tier-header ${config.class}">
+                  <span class="tier-icon" style="display:flex;align-items:center;justify-content:center;font-size:16px;">${config.icon}</span>
+                  <span class="tier-title">${config.title}</span>
+                  <span class="tier-count">${candidates.length}</span>
+                </div>
+                <div class="cards-grid">
+            `;
+
+            candidates.forEach(profile => {
+                const avatarUrl = resolveAvatarUrl(profile);
+                const initials = getInitials(profile.full_name);
+                const scorePct = Math.round((profile.score || 0) * 100);
+
+                html += `
+                  <div class="profile-card ${config.class}" onclick="window.open('${escapeHtml(profile.profile_url)}', '_blank')">
+                    <div class="card-header">
+                      <div class="card-avatar-wrapper">
+                        ${avatarUrl
+                          ? `<img src="${avatarUrl}" class="card-avatar" alt="${escapeHtml(profile.full_name)}"/>`
+                          : `<div class="card-avatar-fallback">${initials}</div>`
+                        }
+                        <div class="match-badge">${scorePct}%</div>
+                      </div>
+                      <div class="card-info">
+                        <div class="card-name">${escapeHtml(profile.full_name)}</div>
+                        <div class="card-headline">${escapeHtml(profile.headline)}</div>
+                      </div>
+                    </div>
+
+                    <div class="card-tags">
+                       ${profile.job_title ? `<span class="card-tag">${escapeHtml(profile.job_title)}</span>` : ''}
+                       ${profile.location ? `<span class="card-tag">📍 ${escapeHtml(profile.location)}</span>` : ''}
+                    </div>
+
+                    <div class="card-meta">
+                        ${profile.school ? `<div class="meta-row">🎓 ${escapeHtml(profile.school)}</div>` : ''}
+                        ${profile.company ? `<div class="meta-row">🏢 ${escapeHtml(profile.company)}</div>` : ''}
+                    </div>
+
+                    ${profile.reasoning ? `
+                    <div class="card-match-reason">
+                      <div class="match-reason-label">Why this match?</div>
+                      <div class="match-reason-text">${escapeHtml(profile.reasoning)}</div>
+                    </div>` : ''}
+
+                    <div class="card-actions">
+                        <a href="${escapeHtml(profile.profile_url)}" target="_blank" class="card-action-btn primary" onclick="event.stopPropagation()">LinkedIn</a>
+                        <button class="card-action-btn" onclick="event.stopPropagation(); copyToClipboard('${escapeHtml(profile.profile_url)}')">Copy Link</button>
+                    </div>
+                  </div>
+                `;
+            });
+
+            html += `
+                </div>
+              </div>
+            `;
+        });
+
+        resultsContainer.innerHTML = html;
+    }
+
+    async function handleSearch() {
+        const query = searchInput.value.trim();
         if (!query) return;
 
+        // Reset UI
         if (abortController) abortController.abort();
         abortController = new AbortController();
 
-        setLoading(true);
-        profilesEl.innerHTML = `<div class="empty-state">Scanning database...</div>`;
-        answerEl.classList.remove("placeholder");
-        answerHint.textContent = "Processing";
-        answerEl.innerHTML = `<span style="color: var(--text-tertiary);">Analyzing query context...</span>`;
+        searchBtn.disabled = true;
+        searchBtnText.innerHTML = '<div class="spinner"></div>';
+        insightStatus.textContent = "Processing...";
+        insightStatus.className = "panel-badge processing";
+
+        // Render Skeletons
+        insightsContent.innerHTML = `
+          <div class="loading-skeleton skeleton-title"></div>
+          <div class="loading-skeleton skeleton-text"></div>
+          <div class="loading-skeleton skeleton-text"></div>
+          <div class="loading-skeleton skeleton-text" style="width: 80%"></div>
+        `;
+
+        resultsContainer.innerHTML = `
+           <div class="cards-grid">
+              ${[1,2,3,4].map(() => `
+                <div class="profile-card">
+                  <div class="card-header">
+                     <div class="loading-skeleton skeleton-avatar"></div>
+                     <div class="card-info">
+                        <div class="loading-skeleton skeleton-title"></div>
+                        <div class="loading-skeleton skeleton-text"></div>
+                     </div>
+                  </div>
+                  <div class="loading-skeleton skeleton-text"></div>
+                  <div class="loading-skeleton skeleton-text"></div>
+                </div>
+              `).join('')}
+           </div>
+        `;
 
         try {
-          const k = parseInt(cardsKEl.value || "24", 10);
+            const k = parseInt(retrievalK.value);
+            const useAi = aiToggle.checked;
+            const startTime = performance.now();
 
-          // Re-using fetch logic from your original code
-          const res = await fetch(`/search?q=${encodeURIComponent(query)}&k=${k}`);
-          const data = await res.json();
-
-          // Render Profiles
-          const uniqueSources = [];
-          const map = new Map();
-          // Simple dedupe logic
-          (data.sources || []).forEach(s => {
-             const key = s.vmid || s.profile_url || s.full_name;
-             if(!map.has(key)) { map.set(key, true); uniqueSources.push(s); }
-          });
-
-          if (uniqueSources.length === 0) {
-            profilesEl.innerHTML = `<div class="empty-state">No matching profiles found for "${escapeHtml(query)}"</div>`;
-          } else {
-            profilesEl.innerHTML = "";
-            uniqueSources.forEach((s) => profilesEl.appendChild(buildCard(s)));
-          }
-
-          cardCountEl.textContent = `${uniqueSources.length} found`;
-          metaDocs.textContent = data.retrieved_docs || 0;
-          metaTime.textContent = (data.latency_sec || 0).toFixed(2) + 's';
-
-          // AI Part
-          if (withAiEl.checked) {
-            answerHint.textContent = "Generating...";
-            const resAI = await fetch("/query", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ query, with_llm: true }),
-              signal: abortController.signal,
+            const res = await fetch('/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query,
+                    k,
+                    with_llm: useAi
+                }),
+                signal: abortController.signal
             });
-            const dataAI = await resAI.json();
-            const answerText =
-              dataAI.answer_text ||
-              (typeof dataAI.answer === "string"
-                ? dataAI.answer
-                : dataAI.answer?.answer) ||
-              "";
 
-            lastAnswerRaw = answerText;
-            answerEl.innerHTML = escapeHtml(answerText || "No analysis available.").replace(/\n/g, "<br>");
-            answerHint.textContent = "Complete";
-          } else {
-            answerEl.innerHTML = `<span style="color: var(--text-tertiary);">AI Analysis skipped.</span>`;
-            answerHint.textContent = "Skipped";
-          }
+            if (!res.ok) throw new Error(await res.text());
+
+            const data = await res.json();
+            const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+
+            // Update Stats
+            statRetrieved.textContent = data.retrieved_docs || 0;
+            statLatency.textContent = `${elapsed}s`;
+
+            // Render Results
+            renderResults(data);
+
+            if (useAi) {
+                renderInsights(data);
+            } else {
+                insightsContent.innerHTML = `
+                  <div class="empty-state" style="padding: 40px 20px;">
+                    <div class="empty-title">AI Analysis Disabled</div>
+                    <div class="empty-text">Enable the AI toggle to generate insights</div>
+                  </div>
+                `;
+                insightStatus.textContent = "Disabled";
+                insightStatus.className = "panel-badge";
+                insightActions.style.display = "none";
+            }
 
         } catch (err) {
-          if (!String(err).includes("AbortError")) {
-            answerEl.innerHTML = `<span style="color: #ef4444;">Error: ${escapeHtml(err.message)}</span>`;
-            answerHint.textContent = "Error";
-          }
+            if (err.name === 'AbortError') return;
+            console.error(err);
+            resultsContainer.innerHTML = `
+               <div class="empty-state">
+                  <div class="empty-title" style="color: var(--accent-error)">Error</div>
+                  <div class="empty-text">${escapeHtml(err.message)}</div>
+               </div>
+            `;
+            insightStatus.textContent = "Error";
+            insightStatus.className = "panel-badge";
         } finally {
-          setLoading(false);
+            searchBtn.disabled = false;
+            searchBtnText.textContent = "Search Profiles";
         }
-      }
+    }
 
-      askBtn.addEventListener("click", ask);
-      qEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault();
-          ask();
+    // Event Listeners
+    searchBtn.addEventListener('click', handleSearch);
+
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSearch();
         }
-      });
+    });
 
-      document.querySelectorAll(".chip").forEach((chip) => {
-        chip.addEventListener("click", () => {
-          qEl.value = chip.dataset.q || "";
-          ask();
+    document.querySelectorAll('.filter-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            searchInput.value = chip.dataset.query;
+            handleSearch();
         });
-      });
+    });
 
-      copyAnswerBtn.addEventListener("click", async () => {
-        if (!lastAnswerRaw) return;
-        await copyToClipboard(lastAnswerRaw);
-        copyAnswerBtn.style.color = "#10b981";
-        setTimeout(() => copyAnswerBtn.style.color = "", 1000);
-      });
-    </script>
-  </body>
+    if (copyInsightsBtn) {
+        copyInsightsBtn.addEventListener('click', async () => {
+            if (currentInsights) {
+                await copyToClipboard(currentInsights);
+                const originalText = copyInsightsBtn.innerHTML;
+                copyInsightsBtn.innerHTML = `
+                  <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  Copied
+                `;
+                setTimeout(() => {
+                    copyInsightsBtn.innerHTML = originalText;
+                }, 2000);
+            }
+        });
+    }
+  </script>
+</body>
 </html>
