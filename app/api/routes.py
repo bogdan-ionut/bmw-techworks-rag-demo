@@ -1,6 +1,7 @@
 # app/api/routes.py
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import re
@@ -195,24 +196,31 @@ def _safe_json_loads(s: Any) -> Dict[str, Any]:
     """
     s = _coerce_llm_text(s).strip()
 
+    def _parse_obj(text: str) -> Optional[Dict[str, Any]]:
+        try:
+            obj = json.loads(text)
+        except Exception:
+            try:
+                obj = ast.literal_eval(text)
+            except Exception:
+                return None
+
+        return obj if isinstance(obj, dict) else None
+
     # Strip common Markdown fences often returned by models
     fenced = re.search(r"```(?:json)?\s*(.*?)```", s, flags=re.DOTALL)
     if fenced:
         s = fenced.group(1).strip()
 
-    try:
-        obj = json.loads(s)
-        if isinstance(obj, dict):
-            return obj
-        raise ValueError("Model output JSON is not an object.")
-    except Exception:
-        pass
+    obj = _parse_obj(s)
+    if obj is not None:
+        return obj
 
     start = s.find("{")
     end = s.rfind("}")
     if start != -1 and end != -1 and end > start:
-        obj = json.loads(s[start : end + 1])
-        if isinstance(obj, dict):
+        obj = _parse_obj(s[start : end + 1])
+        if obj is not None:
             return obj
         raise ValueError("Extracted JSON is not an object.")
 
