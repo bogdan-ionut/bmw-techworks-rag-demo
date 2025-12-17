@@ -73,11 +73,21 @@ def _cache_set(
 # -----------------------------
 def _extract_llm_usage(resp: Any) -> Tuple[int, int, int, Optional[str]]:
     meta = getattr(resp, "response_metadata", {}) or {}
-    usage = meta.get("token_usage") or {}
+    usage = meta.get("token_usage") or meta.get("usage_metadata") or {}
 
-    prompt_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
-    completion_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
-    total_tokens = int(usage.get("total_tokens") or (prompt_tokens + completion_tokens))
+    # OpenAI style
+    prompt_tokens = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+    completion_tokens = usage.get("completion_tokens") or usage.get("output_tokens") or 0
+    total_tokens = usage.get("total_tokens") or 0
+
+    # Gemini 2.5/3 style
+    prompt_tokens = usage.get("prompt_token_count") or prompt_tokens
+    completion_tokens = usage.get("candidates_token_count") or completion_tokens
+    total_tokens = usage.get("total_token_count") or total_tokens
+
+    prompt_tokens = int(prompt_tokens or 0)
+    completion_tokens = int(completion_tokens or 0)
+    total_tokens = int(total_tokens or (prompt_tokens + completion_tokens))
 
     model_name = (
         meta.get("model_name")
@@ -123,16 +133,27 @@ def _get_llm_client(request: Request, provider: str, model: str):
             api_key=settings.google_api_key,
             model=model,
             temperature=settings.temperature,
+            response_mime_type="application/json",  # Gemini 2.5/3 reliably returns JSON
         )
     else:
         if not settings.openai_api_key:
             raise HTTPException(status_code=400, detail="OPENAI_API_KEY is required for OpenAI models.")
-        llm = ChatOpenAI(
-            api_key=settings.openai_api_key,
-            model=model,
-            temperature=settings.temperature,
-            max_tokens=settings.max_tokens,
-        )
+        try:
+            llm = ChatOpenAI(
+                api_key=settings.openai_api_key,
+                model=model,
+                temperature=settings.temperature,
+                max_tokens=settings.max_tokens,
+                response_format={"type": "json_object"},
+            )
+        except TypeError:
+            # Fallback for older client versions that do not support response_format
+            llm = ChatOpenAI(
+                api_key=settings.openai_api_key,
+                model=model,
+                temperature=settings.temperature,
+                max_tokens=settings.max_tokens,
+            )
 
     cache[key] = llm
     request.app.state.llm_cache = cache
@@ -181,8 +202,21 @@ def _coerce_llm_text(x: Any) -> str:
         return "\n".join([p for p in parts if p]).strip()
 
     if isinstance(x, dict):
+        # Gemini 3 responses may include nested candidates/parts
+        if "candidates" in x:
+            parts: List[str] = []
+            for cand in x.get("candidates") or []:
+                content = cand.get("content") or {}
+                parts.extend(
+                    [p.get("text") or "" for p in content.get("parts", []) if isinstance(p, dict)]
+                )
+            flat = "\n".join([p for p in parts if p]).strip()
+            if flat:
+                return flat
+
         if "text" in x:
             return str(x.get("text") or "")
+
         return json.dumps(x, ensure_ascii=False)
 
     return str(x)
