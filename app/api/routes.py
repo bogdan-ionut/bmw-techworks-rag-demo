@@ -194,6 +194,12 @@ def _safe_json_loads(s: Any) -> Dict[str, Any]:
     Accepts str/list/dict and coerces safely to string first.
     """
     s = _coerce_llm_text(s).strip()
+
+    # Strip common Markdown fences often returned by models
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", s, flags=re.DOTALL)
+    if fenced:
+        s = fenced.group(1).strip()
+
     try:
         obj = json.loads(s)
         if isinstance(obj, dict):
@@ -211,6 +217,27 @@ def _safe_json_loads(s: Any) -> Dict[str, Any]:
         raise ValueError("Extracted JSON is not an object.")
 
     raise ValueError("Could not parse JSON from model output.")
+
+
+def _log_llm_raw_output(resp: Any, raw: str, provider: str, model: Optional[str]) -> None:
+    """Log the LLM raw response content in a structured way for debugging."""
+
+    try:
+        content = getattr(resp, "content", None)
+        snippet = raw if len(raw) <= 1500 else (raw[:1500] + "…")
+        meta = getattr(resp, "response_metadata", None)
+        logger.info(
+            "LLM raw output",
+            extra={
+                "llm_provider": provider,
+                "llm_model": model,
+                "llm_raw_snippet": snippet,
+                "llm_content_type": type(content or resp).__name__,
+                "llm_response_metadata": meta,
+            },
+        )
+    except Exception:
+        logger.debug("Failed to log LLM raw output", exc_info=True)
 
 
 # -----------------------------
@@ -765,7 +792,10 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     llm_model_used = usage_model or selected_model or selected_provider
 
     raw = _coerce_llm_text(getattr(resp, "content", resp) or "")
-    logger.debug("LLM raw output: %s", raw)
+    if selected_provider == "GEMINI":
+        _log_llm_raw_output(resp, raw, selected_provider, selected_model)
+    else:
+        logger.debug("LLM raw output: %s", raw)
 
     try:
         parsed = _safe_json_loads(raw)
@@ -774,7 +804,13 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     except Exception as e:
         logger.exception(
             "LLM failed; using fallback",
-            extra={"query": query, "llm_error": str(e)},
+            extra={
+                "query": query,
+                "llm_error": str(e),
+                "llm_provider": selected_provider,
+                "llm_model": selected_model,
+                "llm_raw_snippet": raw[:1500],
+            },
         )
         answer_obj = _fallback_answer_obj(
             query=query,
