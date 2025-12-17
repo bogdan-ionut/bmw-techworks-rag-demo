@@ -390,6 +390,36 @@ def _fallback_answer_obj(
     }
 
 
+def _answer_from_unstructured_raw(
+    raw: Any,
+    query: str,
+    flt: Optional[Dict[str, Any]],
+    sources: List[Dict[str, Any]],
+    *,
+    top_n: int,
+) -> Optional[Dict[str, Any]]:
+    """
+    Build a best-effort answer object when the LLM returns plain text instead of JSON.
+
+    This prevents the UI from surfacing a scary "invalid/unstructured" message when
+    we still have a meaningful answer string we can show to the user.
+    """
+
+    text = _coerce_llm_text(raw).strip()
+    if not text:
+        return None
+
+    return {
+        "answer": text,
+        "filters_applied": flt,
+        "top_matches": _build_top_matches_from_sources(
+            sources,
+            top_n,
+            why="Retrieved match (LLM output unstructured).",
+        ),
+    }
+
+
 def _coerce_answer_obj(
     query: str,
     flt: Optional[Dict[str, Any]],
@@ -698,6 +728,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
             "llm_provider": selected_provider,
             "llm_used": selected_provider,
             "llm_model": selected_model or "SKIPPED",
+            "llm_fallback_reason": None,
             "retrieved_docs": retrieved_docs,
             "unique_sources": len(sources),
             "k": k,
@@ -742,6 +773,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         cached.setdefault("llm_total_tokens", 0)
         cached.setdefault("llm_provider", selected_provider)
         cached.setdefault("llm_model", selected_model)
+        cached.setdefault("llm_fallback_reason", None)
         return cached
 
     # 5) LLM -> JSON answer
@@ -760,6 +792,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     effective_max_tokens = max(int(getattr(s, "max_tokens", 0) or 0), SAFE_MIN_LLM_MAX_TOKENS)
 
     llm_call = llm
+    fallback_reason: Optional[str] = None
     if selected_provider == "GEMINI":
         try:
             # Gemini uses max_output_tokens and rejects unknown fields
@@ -800,6 +833,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
             "LLM invoke failed; using fallback",
             extra={"query": query, "llm_provider": selected_provider, "llm_model": selected_model, "llm_error": str(e)},
         )
+        fallback_reason = "llm_invoke_failed"
         answer_obj = _fallback_answer_obj(
             query=query,
             flt=flt,
@@ -816,6 +850,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
             "llm_provider": selected_provider,
             "llm_used": selected_provider,
             "llm_model": selected_model,
+            "llm_fallback_reason": fallback_reason,
             "retrieved_docs": retrieved_docs,
             "unique_sources": len(sources),
             "k": k,
@@ -843,7 +878,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         logger.info("LLM parsing successful", extra={"query": query})
     except Exception as e:
         logger.exception(
-            "LLM failed; using fallback",
+            "LLM failed; attempting to salvage unstructured output",
             extra={
                 "query": query,
                 "llm_error": str(e),
@@ -852,14 +887,27 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
                 "llm_raw_snippet": raw[:1500],
             },
         )
-        answer_obj = _fallback_answer_obj(
+
+        answer_obj = _answer_from_unstructured_raw(
+            raw,
             query=query,
             flt=flt,
             sources=sources,
             top_n=top_n,
-            reason="LLM fallback",
-            raw=raw,
         )
+        if answer_obj is not None:
+            fallback_reason = "unstructured_output"
+            logger.info("LLM output unstructured; surfaced raw text", extra={"query": query})
+        else:
+            fallback_reason = "llm_fallback"
+            answer_obj = _fallback_answer_obj(
+                query=query,
+                flt=flt,
+                sources=sources,
+                top_n=top_n,
+                reason="LLM fallback",
+                raw=raw,
+            )
 
     result = {
         "answer": answer_obj,
@@ -869,6 +917,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         "llm_provider": selected_provider,
         "llm_used": selected_provider,
         "llm_model": llm_model_used,
+        "llm_fallback_reason": fallback_reason,
         "retrieved_docs": retrieved_docs,
         "unique_sources": len(sources),
         "k": k,
