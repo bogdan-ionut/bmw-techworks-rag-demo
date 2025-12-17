@@ -108,6 +108,7 @@ async def lifespan(app: FastAPI):
 
     app.state.settings = settings
     app.state.cache = {}
+    app.state.llm_cache = {}
 
     # Embeddings (OpenAI)
     if not settings.openai_api_key:
@@ -118,12 +119,19 @@ async def lifespan(app: FastAPI):
     )
 
     # LLM provider
+    llm_cache_key = None
     if settings.llm_provider == "OPENAI":
         app.state.llm = ChatOpenAI(
             api_key=settings.openai_api_key,
             model=settings.openai_model,
             temperature=settings.temperature,
             max_tokens=settings.max_tokens,
+        )
+        llm_cache_key = (
+            "OPENAI",
+            settings.openai_model,
+            settings.temperature,
+            settings.max_tokens,
         )
     elif settings.llm_provider == "GEMINI":
         if ChatGoogleGenerativeAI is None:
@@ -135,8 +143,17 @@ async def lifespan(app: FastAPI):
             model=settings.gemini_model,
             temperature=settings.temperature,
         )
+        llm_cache_key = (
+            "GEMINI",
+            settings.gemini_model,
+            settings.temperature,
+            settings.max_tokens,
+        )
     else:
         raise RuntimeError(f"Invalid LLM_PROVIDER={settings.llm_provider}. Use OPENAI or GEMINI.")
+
+    if llm_cache_key:
+        app.state.llm_cache[llm_cache_key] = app.state.llm
 
     # Pinecone
     app.state.pinecone_index = init_pinecone_index(settings.pinecone_api_key, settings.pinecone_index_name)

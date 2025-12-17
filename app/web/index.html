@@ -355,6 +355,23 @@
       outline: none;
     }
 
+    .control-item input[type="number"] {
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      width: 72px;
+      outline: none;
+    }
+
+    .control-item input[type="number"]::-webkit-inner-spin-button,
+    .control-item input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
     /* Toggle Switch */
     .toggle {
       position: relative;
@@ -1199,24 +1216,29 @@
     <div class="search-card">
       <textarea id="searchInput" placeholder="Describe your ideal candidate... (e.g., 'Senior Machine Learning Engineers in Romania with NLP experience')"></textarea>
       <div class="search-controls">
-        <div class="control-group">
-          <div class="control-item">
-            <label for="retrievalK">Retrieve:</label>
-            <select id="retrievalK">
-              <option value="16">16</option>
-              <option value="24" selected>24</option>
-              <option value="32">32</option>
-              <option value="48">48</option>
-            </select>
+          <div class="control-group">
+            <div class="control-item">
+              <label for="retrievalK">Retrieve:</label>
+              <input id="retrievalK" type="number" min="1" max="32" step="1" value="24" />
+            </div>
+            <div class="control-item">
+              <label for="llmModel">LLM Model</label>
+              <select id="llmModel">
+                <option value="gpt-5-mini-2025-08-07" data-provider="OPENAI">OpenAI · gpt-5-mini-2025-08-07</option>
+                <option value="gpt-5-nano-2025-08-07" data-provider="OPENAI">OpenAI · gpt-5-nano-2025-08-07</option>
+                <option value="gpt-4o-mini-2024-07-18" data-provider="OPENAI" selected>OpenAI · gpt-4o-mini-2024-07-18</option>
+                <option value="gemini-3-flash-preview" data-provider="GEMINI">Gemini · gemini-3-flash-preview</option>
+                <option value="gemini-2.5-flash" data-provider="GEMINI">Gemini · gemini-2.5-flash</option>
+              </select>
+            </div>
+            <div class="control-item">
+              <label for="aiToggle">AI Analysis</label>
+              <label class="toggle">
+                <input type="checkbox" id="aiToggle" checked />
+                <div class="toggle-slider"></div>
+              </label>
+            </div>
           </div>
-          <div class="control-item">
-            <label for="aiToggle">AI Analysis</label>
-            <label class="toggle">
-              <input type="checkbox" id="aiToggle" checked />
-              <div class="toggle-slider"></div>
-            </label>
-          </div>
-        </div>
         <button class="btn-primary" id="searchBtn">
           <span id="searchBtnText">Search Profiles</span>
           <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
@@ -1289,6 +1311,7 @@
     const searchBtn = document.getElementById('searchBtn');
     const searchBtnText = document.getElementById('searchBtnText');
     const retrievalK = document.getElementById('retrievalK');
+    const llmModelSelect = document.getElementById('llmModel');
     const aiToggle = document.getElementById('aiToggle');
     const insightsContent = document.getElementById('insightsContent');
     const insightStatus = document.getElementById('insightStatus');
@@ -1320,6 +1343,14 @@
       if (score >= 0.85) return { tier: 'excellent', label: 'Excellent Match', icon: '★' };
       if (score >= 0.75) return { tier: 'good', label: 'Good Match', icon: '◆' };
       return { tier: 'potential', label: 'Potential Match', icon: '○' };
+    }
+
+    function sanitizeRetrievalValue(defaultValue = 24) {
+      let val = parseInt(retrievalK.value, 10);
+      if (Number.isNaN(val)) val = defaultValue;
+      val = Math.max(1, Math.min(32, val));
+      retrievalK.value = val;
+      return val;
     }
 
     function resolveAvatarUrl(profile) {
@@ -1601,9 +1632,12 @@
         `;
 
         try {
-            const k = parseInt(retrievalK.value);
+            const k = sanitizeRetrievalValue();
             const useAi = aiToggle.checked;
             const startTime = performance.now();
+            const selectedLlmOption = llmModelSelect?.selectedOptions?.[0] || llmModelSelect?.options?.[llmModelSelect.selectedIndex];
+            const llmModel = selectedLlmOption?.value;
+            const llmProvider = selectedLlmOption?.dataset?.provider;
 
             const res = await fetch('/query', {
                 method: 'POST',
@@ -1611,7 +1645,9 @@
                 body: JSON.stringify({
                     query,
                     k,
-                    with_llm: useAi
+                    with_llm: useAi,
+                    llm_provider: llmProvider,
+                    llm_model: llmModel,
                 }),
                 signal: abortController.signal
             });
@@ -1634,7 +1670,11 @@
             statRerank.textContent = `${rerankSec.toFixed(2)}s`;
             statAiLatency.textContent = `${aiLatency.toFixed(2)}s`;
             statAiTokens.textContent = `${promptTokens} in / ${completionTokens} out (${totalTokens} total)`;
-            statLlmModel.textContent = data.llm_model || data.llm_used || '—';
+            const llmUsed = data.llm_used || '';
+            const llmModelLabel = data.llm_model || '';
+            statLlmModel.textContent = llmModelLabel
+              ? `${llmUsed ? `${llmUsed} • ` : ''}${llmModelLabel}`
+              : (llmUsed || '—');
             statLatency.textContent = `${elapsed}s`;
 
             // Render Results
@@ -1672,6 +1712,10 @@
     }
 
     // Event Listeners
+    ['input','blur'].forEach(evt => {
+        retrievalK.addEventListener(evt, () => sanitizeRetrievalValue());
+    });
+
     searchBtn.addEventListener('click', handleSearch);
 
     searchInput.addEventListener('keydown', (e) => {
