@@ -538,6 +538,11 @@
       animation: pulse 2s ease-in-out infinite;
     }
 
+    .panel-badge.warning {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--accent-warning);
+    }
+
     /* AI Insights Panel */
     .insights-panel {
       position: sticky;
@@ -545,6 +550,23 @@
       max-height: calc(100vh - 140px);
       display: flex;
       flex-direction: column;
+    }
+
+    .insight-warning {
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      background: rgba(245, 158, 11, 0.08);
+      color: var(--accent-warning);
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+
+    .insight-warning svg {
+      min-width: 18px;
+      opacity: 0.9;
     }
 
     .insights-content {
@@ -1382,6 +1404,7 @@
       const answer = data.answer || {};
       const answerText = answer.answer || data.answer_text || (typeof answer === 'string' ? answer : '');
       const filtersApplied = answer.filters_applied || data.filters_applied;
+      const fallbackReason = data.llm_fallback_reason || '';
 
       const sources = data.sources || [];
       const tierCounts = { excellent: 0, good: 0, potential: 0 };
@@ -1391,6 +1414,21 @@
       });
 
       let html = '';
+
+      if (fallbackReason) {
+        const fallbackMessageMap = {
+          unstructured_output: 'Model response was unstructured. Showing the best-effort raw analysis instead of dropping insights.',
+          llm_fallback: 'Model response could not be parsed. Showing a safe fallback based on retrieved matches.',
+          llm_invoke_failed: 'Model call failed. Showing a safe fallback based on retrieved matches.',
+        };
+        const fallbackMessage = fallbackMessageMap[fallbackReason] || 'AI output degraded; showing safe fallback.';
+        html += `
+          <div class="insight-warning">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.29 3.86L1.82 18a1.65 1.65 0 001.42 2.48h17.52A1.65 1.65 0 0022.18 18L13.71 3.86a1.65 1.65 0 00-2.82 0z"></path></svg>
+            <div><strong>Degraded AI output</strong><br>${fallbackMessage}</div>
+          </div>
+        `;
+      }
 
       // Match Quality Overview
       html += `
@@ -1487,8 +1525,13 @@
       }
 
       insightsContent.innerHTML = html;
-      insightStatus.textContent = "Ready";
-      insightStatus.className = "panel-badge active";
+      if (fallbackReason) {
+        insightStatus.textContent = "Degraded";
+        insightStatus.className = "panel-badge warning";
+      } else {
+        insightStatus.textContent = "Ready";
+        insightStatus.className = "panel-badge active";
+      }
       insightActions.style.display = "flex";
       currentInsights = answerText;
     }
