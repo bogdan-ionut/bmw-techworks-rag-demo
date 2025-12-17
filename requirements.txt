@@ -16,3 +16,6 @@ pydantic-settings
 pinecone
 cohere
 langchain-cohere
+
+# Testing
+pytest
