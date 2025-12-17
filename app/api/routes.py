@@ -475,6 +475,10 @@ def _coerce_answer_obj(
         return _fallback_answer_obj(query, flt, sources, top_n=top_n, reason="fallback")
 
     # Ensure required keys exist
+    # If the model returned "summary" instead of "answer", rename it for consistency
+    if "summary" in answer_obj and "answer" not in answer_obj:
+        answer_obj["answer"] = answer_obj.pop("summary")
+
     if "answer" not in answer_obj or not str(answer_obj.get("answer") or "").strip():
         fallback = _fallback_answer_obj(
             query=query,
