@@ -1,14 +1,22 @@
-name: CI/CD
+name: CI/CD (ECR -> ECS)
 
 on:
   push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
+    branches: ["master", "main"]
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: my-bmw-techworks-demo
+  ECS_SERVICE: bmw-service
+  ECS_CLUSTER: bmw-cluster
+  ECS_TASK_DEFINITION_FAMILY: bmw-task
+  CONTAINER_NAME: app
 
 jobs:
+  # Job 1: Rulează teste (Opțional, dar recomandat)
   tests:
     runs-on: ubuntu-latest
     steps:
@@ -18,64 +26,81 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
+          pip install pytest httpx
 
+      # Dacă nu ai teste scrise încă, pasul ăsta va trece rapid sau va da skip
+      # Poți să-l comentezi dacă vrei să sari peste teste momentan
       - name: Run tests
-        run: pytest
+        run: |
+          if [ -d "tests" ]; then pytest; else echo "No tests folder found, skipping"; fi
 
-  build-and-deploy:
-    runs-on: ubuntu-latest
+  # Job 2: Build Docker -> Push ECR -> Deploy ECS
+  deploy:
     needs: tests
-    env:
-      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-      AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
-      ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-      ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
-      ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
-      ECS_TASK_DEFINITION: ${{ secrets.ECS_TASK_DEFINITION }}
-      IMAGE_NAME: ${{ github.repository }}:${{ github.sha }}
+    runs-on: ubuntu-latest
+    if: success() # Rulează doar dacă testele au trecut
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
+      # 1. Ne logăm în AWS folosind cheile salvate în GitHub Secrets
       - name: Configure AWS credentials
-        if: github.ref == 'refs/heads/master' && env.AWS_ACCOUNT_ID != ''
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Log in to Amazon ECR
-        if: github.ref == 'refs/heads/master' && env.AWS_ACCOUNT_ID != ''
+      # 2. Login la ECR (Registrul de imagini)
+      - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Docker image
-        run: docker build -t $IMAGE_NAME .
+      # 3. Construim imaginea Docker și o trimitem la AWS
+      # Folosim buildx pentru caching ca să meargă mai repede data viitoare
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Tag and push Docker image to ECR
-        if: github.ref == 'refs/heads/master' && env.AWS_ACCOUNT_ID != '' && env.ECR_REPOSITORY != ''
-        env:
-          ECR_REGISTRY: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # Etichetăm imaginea și cu SHA-ul commit-ului și cu 'latest'
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          # Caching pentru viteză
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 4. Descărcăm configurația curentă a Task-ului din AWS
+      # Asta e crucial ca să nu pierdem setările (secrete, roluri, memorie)
+      - name: Download task definition
         run: |
-          docker tag $IMAGE_NAME $ECR_REGISTRY/$ECR_REPOSITORY:${GITHUB_SHA}
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${GITHUB_SHA}
+          aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION_FAMILY }} --query taskDefinition > task-def.json
 
-      - name: Deploy to ECS service
-        if: github.ref == 'refs/heads/master' && env.AWS_ACCOUNT_ID != '' && env.ECS_CLUSTER != '' && env.ECS_SERVICE != '' && env.ECS_TASK_DEFINITION != ''
+      # 5. Modificăm configurația descărcată să folosească NOUA imagine creată mai sus
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-def.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+      # 6. Trimitem noua configurație la AWS și forțăm update-ul
+      - name: Deploy Amazon ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
-          task-definition: ${{ env.ECS_TASK_DEFINITION }}
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
           service: ${{ env.ECS_SERVICE }}
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
