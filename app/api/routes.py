@@ -235,7 +235,8 @@ def _log_llm_raw_output(resp: Any, raw: str, provider: str, model: Optional[str]
         snippet = raw if len(raw) <= 1500 else (raw[:1500] + "…")
         meta = getattr(resp, "response_metadata", None)
         logger.info(
-            "LLM raw output",
+            "LLM raw output: %s",
+            snippet,
             extra={
                 "llm_provider": provider,
                 "llm_model": model,
@@ -800,10 +801,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     llm_model_used = usage_model or selected_model or selected_provider
 
     raw = _coerce_llm_text(getattr(resp, "content", resp) or "")
-    if selected_provider == "GEMINI":
-        _log_llm_raw_output(resp, raw, selected_provider, selected_model)
-    else:
-        logger.debug("LLM raw output: %s", raw)
+    _log_llm_raw_output(resp, raw, selected_provider, selected_model)
 
     try:
         parsed = _safe_json_loads(raw)
