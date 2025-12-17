@@ -115,7 +115,7 @@ def plan_query_with_llm(user_query: str) -> Dict[str, Any]:
         api_key=s.openai_api_key,
         model=s.openai_model,
         temperature=0.0,
-        max_tokens=220,
+        max_tokens=600,
     )
 
     out = llm.invoke(

@@ -19,6 +19,10 @@ from app.rag.prompt import ANSWER_SYSTEM_PROMPT, format_candidates_for_prompt
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Make the UI bulletproof even if the LLM fails/truncates
+DEFAULT_FALLBACK_TOP_N = 5
+SAFE_MIN_LLM_MAX_TOKENS = 700  # prevents JSON truncation for top_matches with long URLs
+
 
 # -----------------------------
 # DTO
@@ -33,7 +37,11 @@ class QueryBody(BaseModel):
 # -----------------------------
 # Cache helpers
 # -----------------------------
-def _cache_get(cache: Dict[Tuple[Any, ...], Dict[str, Any]], key: Tuple[Any, ...], ttl_sec: int) -> Optional[Dict[str, Any]]:
+def _cache_get(
+    cache: Dict[Tuple[Any, ...], Dict[str, Any]],
+    key: Tuple[Any, ...],
+    ttl_sec: int,
+) -> Optional[Dict[str, Any]]:
     entry = cache.get(key)
     if not entry:
         return None
@@ -43,7 +51,11 @@ def _cache_get(cache: Dict[Tuple[Any, ...], Dict[str, Any]], key: Tuple[Any, ...
     return entry["v"]
 
 
-def _cache_set(cache: Dict[Tuple[Any, ...], Dict[str, Any]], key: Tuple[Any, ...], value: Dict[str, Any]) -> None:
+def _cache_set(
+    cache: Dict[Tuple[Any, ...], Dict[str, Any]],
+    key: Tuple[Any, ...],
+    value: Dict[str, Any],
+) -> None:
     cache[key] = {"t": time.time(), "v": value}
 
 
@@ -51,15 +63,27 @@ def _cache_set(cache: Dict[Tuple[Any, ...], Dict[str, Any]], key: Tuple[Any, ...
 # JSON safety
 # -----------------------------
 def _safe_json_loads(s: str) -> Dict[str, Any]:
+    """
+    Tries to parse model output as JSON.
+    If it contains extra text, tries to extract the outermost {...}.
+    """
     s = (s or "").strip()
     try:
-        return json.loads(s)
+        obj = json.loads(s)
+        if isinstance(obj, dict):
+            return obj
+        raise ValueError("Model output JSON is not an object.")
     except Exception:
         pass
+
     start = s.find("{")
     end = s.rfind("}")
     if start != -1 and end != -1 and end > start:
-        return json.loads(s[start : end + 1])
+        obj = json.loads(s[start : end + 1])
+        if isinstance(obj, dict):
+            return obj
+        raise ValueError("Extracted JSON is not an object.")
+
     raise ValueError("Could not parse JSON from model output.")
 
 
@@ -104,7 +128,6 @@ def _source_to_text(s: Dict[str, Any]) -> str:
     emb = (s.get("embedding_text") or "").strip()
     if emb:
         return emb
-
     parts = [
         f"Employee: {s.get('full_name') or 'N/A'}",
         f"Headline: {s.get('headline') or 'N/A'}",
@@ -119,6 +142,93 @@ def _source_to_text(s: Dict[str, Any]) -> str:
         f"Beard present: {s.get('beard_present')}",
     ]
     return "\n".join([p for p in parts if p.strip()]).strip()
+
+
+def _build_top_matches_from_sources(
+    sources: List[Dict[str, Any]],
+    top_n: int,
+    *,
+    why: str,
+) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for s0 in (sources or [])[: max(0, top_n)]:
+        out.append(
+            {
+                "full_name": s0.get("full_name") or "",
+                "profile_url": s0.get("profile_url") or "",
+                "image_url": s0.get("profile_image_url") or None,
+                "score": s0.get("score"),
+                "why_match": why,
+            }
+        )
+    return out
+
+
+def _fallback_answer_obj(
+    query: str,
+    flt: Optional[Dict[str, Any]],
+    sources: List[Dict[str, Any]],
+    *,
+    top_n: int,
+    reason: str,
+    raw: Optional[str] = None,
+) -> Dict[str, Any]:
+    fallback_top = (sources or [])[: max(0, top_n)]
+    names = [s.get("full_name") or "N/A" for s in fallback_top]
+    base = f"Top matches for '{query}' ({reason}): " + (", ".join(names) if names else "No matches.")
+    if raw:
+        # keep it short (UI-friendly)
+        raw_snip = raw.strip().replace("\n", " ")
+        if len(raw_snip) > 240:
+            raw_snip = raw_snip[:240] + "..."
+        base = base + f"\n\n(LLM output was invalid/truncated.)"
+
+    return {
+        "answer": base,
+        "filters_applied": flt,
+        "top_matches": _build_top_matches_from_sources(
+            sources,
+            top_n,
+            why="Retrieved match (LLM output invalid/truncated).",
+        ),
+    }
+
+
+def _coerce_answer_obj(
+    query: str,
+    flt: Optional[Dict[str, Any]],
+    sources: List[Dict[str, Any]],
+    answer_obj: Any,
+    *,
+    top_n: int,
+) -> Dict[str, Any]:
+    """
+    Ensure the final answer object always matches the expected schema and
+    top_matches is never empty (unless there are no sources).
+    """
+    if not isinstance(answer_obj, dict):
+        return _fallback_answer_obj(query, flt, sources, top_n=top_n, reason="fallback")
+
+    # Ensure required keys exist
+    if "answer" not in answer_obj:
+        answer_obj["answer"] = "I found relevant profiles. See the cards."
+    if "filters_applied" not in answer_obj:
+        answer_obj["filters_applied"] = flt
+    if "top_matches" not in answer_obj or not isinstance(answer_obj.get("top_matches"), list):
+        answer_obj["top_matches"] = []
+
+    # Cap top_matches
+    answer_obj["top_matches"] = answer_obj["top_matches"][: max(0, top_n)]
+
+    # If empty, fill with fallback from sources
+    if not answer_obj["top_matches"] and (sources or []):
+        answer_obj["top_matches"] = _build_top_matches_from_sources(
+            sources,
+            top_n,
+            why="Retrieved match (LLM did not return structured matches).",
+        )
+
+    return answer_obj
 
 
 # -----------------------------
@@ -165,13 +275,17 @@ def _extract_metadata_filter(query: str) -> Optional[Dict[str, Any]]:
 # -----------------------------
 # Pinecone search (semantic) with optional metadata filter
 # -----------------------------
-def _pinecone_query(request: Request, query: str, top_k: int, flt: Optional[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], int]:
+def _pinecone_query(
+    request: Request,
+    query: str,
+    top_k: int,
+    flt: Optional[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], int]:
     embeddings = request.app.state.embeddings
     index = request.app.state.pinecone_index
     namespace = request.app.state.settings.pinecone_namespace
 
     vec = embeddings.embed_query(query)
-
     res = index.query(
         vector=vec,
         top_k=top_k,
@@ -181,8 +295,8 @@ def _pinecone_query(request: Request, query: str, top_k: int, flt: Optional[Dict
     )
 
     matches = res.get("matches") if isinstance(res, dict) else getattr(res, "matches", []) or []
-
     sources: List[Dict[str, Any]] = []
+
     for m in matches:
         if isinstance(m, dict):
             md = m.get("metadata") or {}
@@ -212,7 +326,6 @@ def _pinecone_query(request: Request, query: str, top_k: int, flt: Optional[Dict
                 "full_name": md.get("full_name"),
                 "profile_url": md.get("profile_url"),
                 "profile_image_url": image_url,
-
                 "headline": md.get("headline"),
                 "location": md.get("location"),
                 "job_title": md.get("job_title"),
@@ -225,11 +338,9 @@ def _pinecone_query(request: Request, query: str, top_k: int, flt: Optional[Dict
                 "school_2": md.get("school_2"),
                 "school_degree_2": md.get("school_degree_2"),
                 "school_date_range_2": md.get("school_date_range_2"),
-
                 # filters
                 "eyewear_present": md.get("eyewear_present"),
                 "beard_present": md.get("beard_present"),
-
                 # best context (already built in ingestion)
                 "embedding_text": md.get("embedding_text") or "",
             }
@@ -245,13 +356,10 @@ def _cohere_rerank_sources(request: Request, query: str, sources: List[Dict[str,
     reranker = request.app.state.cohere_reranker
     if not reranker or not sources:
         return sources
-
     docs = [Document(page_content=_source_to_text(s), metadata=s) for s in sources]
     reranked_docs = reranker.compress_documents(documents=docs, query=query)  # already top_n
-
     top_sources = [d.metadata for d in reranked_docs]
     top_ids = {_source_id(s) for s in top_sources}
-
     rest = [s for s in sources if _source_id(s) and _source_id(s) not in top_ids]
     return top_sources + rest
 
@@ -288,7 +396,14 @@ def search_endpoint(
     inferred_filter = _extract_metadata_filter(query)
     flt = explicit_filter or inferred_filter
 
-    cache_key = ("search", query.lower(), int(k), s.embed_model, s.pinecone_index_name, json.dumps(flt, sort_keys=True) if flt else None)
+    cache_key = (
+        "search",
+        query.lower(),
+        int(k),
+        s.embed_model,
+        s.pinecone_index_name,
+        json.dumps(flt, sort_keys=True) if flt else None,
+    )
     cached = _cache_get(cache, cache_key, ttl)
     if cached:
         return cached
@@ -321,6 +436,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
 
     query = body.query.strip()
     with_llm = bool(body.with_llm)
+
     k = int(body.k or s.search_top_k)
     k = max(1, min(200, k))
 
@@ -337,7 +453,14 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     # 2) rerank (optional)
     sources = _cohere_rerank_sources(request, query, sources)
 
-    # Build candidates for the answer prompt (use embedding_text if present)
+    # Effective top_matches count for UI/answer payload
+    top_n = min(
+        int(getattr(s, "context_max_people", DEFAULT_FALLBACK_TOP_N) or DEFAULT_FALLBACK_TOP_N),
+        DEFAULT_FALLBACK_TOP_N,
+        len(sources or []),
+    )
+
+    # Build candidates for the answer prompt
     candidates: List[Dict[str, Any]] = []
     for s0 in sources:
         candidates.append(
@@ -346,24 +469,25 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
                 "score": s0.get("score"),
                 "text": _source_to_text(s0),
                 "metadata": {
-                    # keep the fields the prompt expects
                     "full_name": s0.get("full_name"),
                     "profile_url": s0.get("profile_url"),
-                    "profile_image_s3_url": s0.get("profile_image_url"),  # prompt uses this key
+                    "profile_image_s3_url": s0.get("profile_image_url"),  # prompt expects this key
                 },
             }
         )
 
-    # 3) skip LLM (optional)
+    # 3) skip LLM (optional) -> still return useful AI Insights payload
     if not with_llm or (s.skip_llm_for_short and _looks_like_short_search(query)):
-        answer_obj = {
-            "answer": "I found relevant profiles. See the cards.",
-            "filters_applied": flt,
-            "top_matches": [],
-        }
+        answer_obj = _fallback_answer_obj(
+            query=query,
+            flt=flt,
+            sources=sources,
+            top_n=top_n,
+            reason="LLM skipped",
+        )
         return {
             "answer": answer_obj,
-            "answer_text": answer_obj["answer"],
+            "answer_text": str(answer_obj.get("answer") or ""),
             "sources": sources,
             "filters_applied": flt,
             "llm_used": "SKIPPED",
@@ -399,7 +523,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         cached["filters_applied"] = flt
         return cached
 
-    # 5) LLM -> JSON answer (same schema as CLI/service)
+    # 5) LLM -> JSON answer
     llm = request.app.state.llm
     t2 = time.time()
 
@@ -409,24 +533,60 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         "candidates_text": format_candidates_for_prompt(candidates),
     }
 
-    resp = llm.invoke(
+    # Make output robust:
+    # - enforce JSON output (OpenAI JSON mode when available)
+    # - avoid truncation by using a safer max_tokens floor
+    effective_max_tokens = max(int(getattr(s, "max_tokens", 0) or 0), SAFE_MIN_LLM_MAX_TOKENS)
+
+    llm_call = llm
+    try:
+        llm_call = llm_call.bind(max_tokens=effective_max_tokens)
+    except Exception:
+        pass
+
+    try:
+        # Works for OpenAI ChatCompletions JSON mode in langchain (ignored by non-OpenAI providers)
+        llm_call = llm_call.bind(response_format={"type": "json_object"})
+    except Exception:
+        pass
+
+    tight_system = (
+        ANSWER_SYSTEM_PROMPT
+        + "\n\nHard constraints:\n"
+        + f"- Return at most {max(0, top_n)} top_matches.\n"
+        + "- Keep 'answer' concise (<= 300 chars).\n"
+        + "- Keep each 'why_match' concise (<= 120 chars).\n"
+        + "- Return JSON ONLY.\n"
+    )
+
+    resp = llm_call.invoke(
         [
-            SystemMessage(content=ANSWER_SYSTEM_PROMPT),
+            SystemMessage(content=tight_system),
             HumanMessage(content=json.dumps(user_msg, ensure_ascii=False)),
         ]
     )
     t3 = time.time()
 
-    raw = getattr(resp, "content", str(resp))
+    raw = getattr(resp, "content", str(resp)) or ""
+    logger.debug("LLM raw output: %s", raw)
+
     try:
-        answer_obj = _safe_json_loads(raw)
-    except Exception:
-        # hard fallback so UI never breaks
-        answer_obj = {
-            "answer": raw.strip() or "I couldn't generate an answer.",
-            "filters_applied": flt,
-            "top_matches": [],
-        }
+        parsed = _safe_json_loads(raw)
+        answer_obj = _coerce_answer_obj(query, flt, sources, parsed, top_n=top_n)
+        logger.info("LLM parsing successful", extra={"query": query})
+    except Exception as e:
+        logger.exception(
+            "LLM failed; using fallback",
+            extra={"query": query, "llm_error": str(e)},
+        )
+        answer_obj = _fallback_answer_obj(
+            query=query,
+            flt=flt,
+            sources=sources,
+            top_n=top_n,
+            reason="LLM fallback",
+            raw=raw,
+        )
 
     result = {
         "answer": answer_obj,
