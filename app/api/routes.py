@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 
 # Make the UI bulletproof even if the LLM fails/truncates
 DEFAULT_FALLBACK_TOP_N = 5
-SAFE_MIN_LLM_MAX_TOKENS = 700  # prevents JSON truncation for top_matches with long URLs
+# Keep completion budgets large enough to avoid truncation (e.g., long URLs in top_matches)
+SAFE_MIN_LLM_MAX_TOKENS = 1200
 
 
 # -----------------------------
@@ -856,7 +857,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         + f"- Return at most {max(0, top_n)} top_matches.\n"
         + "- Keep 'answer' <= 1200 chars.\n"
         + "- Keep each 'why_match' <= 180 chars.\n"
-        + "- Return JSON ONLY.\n"
+        + "- Return JSON ONLY (no Markdown fences).\n"
     )
 
     try:

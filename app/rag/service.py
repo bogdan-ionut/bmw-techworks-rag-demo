@@ -20,6 +20,9 @@ from app.rag.prompt import (
 )
 
 
+SAFE_MIN_LLM_MAX_TOKENS = 1200
+
+
 GLASSES_POS = re.compile(r"\b(eyeglasses|eye-glasses|glasses|spectacles)\b", re.I)
 GLASSES_NEG = re.compile(r"\b(no glasses|without glasses|no eyewear)\b", re.I)
 
@@ -142,7 +145,7 @@ def generate_answer(user_query: str, candidates: List[Dict[str, Any]], filters_a
         api_key=s.openai_api_key,
         model=s.openai_model,
         temperature=s.temperature,
-        max_tokens=s.max_tokens,
+        max_tokens=max(s.max_tokens, SAFE_MIN_LLM_MAX_TOKENS),
     )
 
     user_msg = {
