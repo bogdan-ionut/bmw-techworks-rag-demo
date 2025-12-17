@@ -8,11 +8,17 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except Exception:
+    ChatGoogleGenerativeAI = None
 
 from app.rag.prompt import ANSWER_SYSTEM_PROMPT, format_candidates_for_prompt
 
@@ -32,6 +38,8 @@ class QueryBody(BaseModel):
     with_llm: bool = True
     k: Optional[int] = None  # retrieval top_k override
     filters: Optional[Dict[str, Any]] = None  # optional explicit pinecone filter
+    llm_provider: Optional[str] = None
+    llm_model: Optional[str] = None
 
 
 # -----------------------------
@@ -78,6 +86,56 @@ def _extract_llm_usage(resp: Any) -> Tuple[int, int, int, Optional[str]]:
     )
 
     return prompt_tokens, completion_tokens, total_tokens, model_name
+
+
+def _resolve_llm_choice(settings, body: QueryBody) -> Tuple[str, str]:
+    provider = (body.llm_provider or settings.llm_provider or "").strip().upper()
+    if provider not in {"OPENAI", "GEMINI"}:
+        raise HTTPException(status_code=400, detail="Invalid llm_provider. Use OPENAI or GEMINI.")
+
+    if provider == "OPENAI":
+        model = (body.llm_model or settings.openai_model or "").strip()
+    else:
+        model = (body.llm_model or settings.gemini_model or "").strip()
+
+    if not model:
+        raise HTTPException(status_code=400, detail="Missing llm_model for selected provider.")
+
+    return provider, model
+
+
+def _get_llm_client(request: Request, provider: str, model: str):
+    settings = request.app.state.settings
+    cache = getattr(request.app.state, "llm_cache", {}) or {}
+    key = (provider, model, settings.temperature, settings.max_tokens)
+
+    if key in cache:
+        return cache[key]
+
+    if provider == "GEMINI":
+        if ChatGoogleGenerativeAI is None:
+            raise HTTPException(status_code=400, detail="Gemini requested but not installed.")
+        if not settings.google_api_key:
+            raise HTTPException(status_code=400, detail="GOOGLE_API_KEY is required for Gemini.")
+
+        llm = ChatGoogleGenerativeAI(
+            api_key=settings.google_api_key,
+            model=model,
+            temperature=settings.temperature,
+        )
+    else:
+        if not settings.openai_api_key:
+            raise HTTPException(status_code=400, detail="OPENAI_API_KEY is required for OpenAI models.")
+        llm = ChatOpenAI(
+            api_key=settings.openai_api_key,
+            model=model,
+            temperature=settings.temperature,
+            max_tokens=settings.max_tokens,
+        )
+
+    cache[key] = llm
+    request.app.state.llm_cache = cache
+    return llm
 
 
 # -----------------------------
@@ -231,8 +289,16 @@ def _coerce_answer_obj(
         return _fallback_answer_obj(query, flt, sources, top_n=top_n, reason="fallback")
 
     # Ensure required keys exist
-    if "answer" not in answer_obj:
-        answer_obj["answer"] = "I found relevant profiles. See the cards."
+    if "answer" not in answer_obj or not str(answer_obj.get("answer") or "").strip():
+        fallback = _fallback_answer_obj(
+            query=query,
+            flt=flt,
+            sources=sources,
+            top_n=top_n,
+            reason="LLM returned an empty answer",
+        )
+        answer_obj["answer"] = fallback["answer"]
+        answer_obj.setdefault("top_matches", fallback.get("top_matches", []))
     if "filters_applied" not in answer_obj:
         answer_obj["filters_applied"] = flt
     if "top_matches" not in answer_obj or not isinstance(answer_obj.get("top_matches"), list):
@@ -397,7 +463,7 @@ def health() -> Dict[str, Any]:
 def search_endpoint(
     request: Request,
     q: str = Query(..., min_length=1),
-    k: int = Query(24, ge=1, le=200),
+    k: int = Query(24, ge=1, le=32),
     filters: Optional[str] = Query(None, description="Optional JSON string Pinecone filter"),
 ) -> Dict[str, Any]:
     s = request.app.state.settings
@@ -457,10 +523,10 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
 
     query = body.query.strip()
     with_llm = bool(body.with_llm)
-    configured_llm_model = s.openai_model if s.llm_provider == "OPENAI" else s.gemini_model
+    selected_provider, selected_model = _resolve_llm_choice(s, body)
 
     k = int(body.k or s.search_top_k)
-    k = max(1, min(200, k))
+    k = max(1, min(32, k))
 
     start = time.time()
 
@@ -515,8 +581,9 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
             "answer_text": str(answer_obj.get("answer") or ""),
             "sources": sources,
             "filters_applied": flt,
-            "llm_used": "SKIPPED",
-            "llm_model": configured_llm_model or "SKIPPED",
+            "llm_provider": selected_provider,
+            "llm_used": selected_provider,
+            "llm_model": selected_model or "SKIPPED",
             "retrieved_docs": retrieved_docs,
             "unique_sources": len(sources),
             "k": k,
@@ -536,9 +603,8 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         query.lower(),
         int(k),
         json.dumps(flt, sort_keys=True) if flt else None,
-        s.llm_provider,
-        s.openai_model,
-        s.gemini_model,
+        selected_provider,
+        selected_model,
         s.temperature,
         s.max_tokens,
         s.context_max_people,
@@ -560,11 +626,12 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         cached.setdefault("llm_prompt_tokens", 0)
         cached.setdefault("llm_completion_tokens", 0)
         cached.setdefault("llm_total_tokens", 0)
-        cached.setdefault("llm_model", s.openai_model if s.llm_provider == "OPENAI" else s.gemini_model)
+        cached.setdefault("llm_provider", selected_provider)
+        cached.setdefault("llm_model", selected_model)
         return cached
 
     # 5) LLM -> JSON answer
-    llm = request.app.state.llm
+    llm = _get_llm_client(request, selected_provider, selected_model)
     t2 = time.time()
 
     user_msg = {
@@ -608,7 +675,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     t3 = time.time()
 
     prompt_tokens, completion_tokens, total_tokens, usage_model = _extract_llm_usage(resp)
-    llm_model_used = usage_model or configured_llm_model or s.llm_provider
+    llm_model_used = usage_model or selected_model or selected_provider
 
     raw = getattr(resp, "content", str(resp)) or ""
     logger.debug("LLM raw output: %s", raw)
@@ -636,7 +703,8 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         "answer_text": str(answer_obj.get("answer") or ""),
         "sources": sources,
         "filters_applied": flt,
-        "llm_used": s.llm_provider,
+        "llm_provider": selected_provider,
+        "llm_used": selected_provider,
         "llm_model": llm_model_used,
         "retrieved_docs": retrieved_docs,
         "unique_sources": len(sources),
@@ -664,6 +732,14 @@ def meta(request: Request) -> Dict[str, Any]:
         "llm_provider": s.llm_provider,
         "openai_model": s.openai_model,
         "gemini_model": s.gemini_model,
+        "available_llms": {
+            "OPENAI": [
+                "gpt-5-mini-2025-08-07",
+                "gpt-5-nano-2025-08-07",
+                "gpt-4o-mini-2024-07-18",
+            ],
+            "GEMINI": ["gemini-3-flash-preview", "gemini-2.5-flash"],
+        },
         "cohere_rerank_top_n": s.cohere_rerank_top_n,
         "cache_ttl_sec": s.cache_ttl_sec,
         "frontend": "app/web/index.html",
