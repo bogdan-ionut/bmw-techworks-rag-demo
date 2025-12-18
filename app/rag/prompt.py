@@ -8,8 +8,6 @@ from typing import Any, Dict, List
 ALLOWED_FILTER_FIELDS = {
     "eyewear_present",
     "beard_present",
-    "location_normalized",
-    "location",
     "job_title",
     "minimum_estimated_years_of_exp",
     "tech_tokens",
@@ -29,14 +27,15 @@ Rules:
 - Use only these filter fields when possible:
   eyewear_present (bool)
   beard_present (bool)
-  location_normalized (string)
   minimum_estimated_years_of_exp (number)
   tech_tokens (list of strings)
   image_search_tags (list of strings)
 
 - For visual attributes (e.g., "eyeglasses", "smiling", "beard"), use the boolean `eyewear_present`, `beard_present`, or `image_search_tags` filters.
 - **IMPORTANT**: Remove visual descriptors from the `semantic_query` to avoid biasing the vector search. The `semantic_query` should only contain professional criteria (skills, roles, experience).
+- **IMPORTANT**: Do NOT filter by location (city, country). Leave location terms in the `semantic_query` to allow partial matching.
 - If a user asks for "python engineers with eyeglasses", the `semantic_query` should be "python engineers" and the filter should be `{"eyewear_present": {"$eq": true}}`.
+- If a user asks for "people from Berlin", the `semantic_query` should be "people from Berlin" and the filter should be `null` (do not use location_normalized).
 - If you are unsure, omit the filter (do not guess).
 
 Filter format must be Pinecone-compatible:
