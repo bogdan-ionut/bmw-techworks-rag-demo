@@ -138,6 +138,26 @@
       font-weight: 500;
     }
 
+    .nav-link-arch {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      transition: var(--transition-fast);
+      background: rgba(37, 99, 235, 0.05);
+      border: 1px solid rgba(37, 99, 235, 0.1);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .nav-link-arch:hover {
+      background: rgba(37, 99, 235, 0.1);
+      color: var(--accent-primary);
+      border-color: rgba(37, 99, 235, 0.2);
+    }
+
     .header-stats {
       display: flex;
       gap: 24px;
@@ -901,6 +921,10 @@
         <div class="brand-logo">BMW TechWorks</div>
         <div class="brand-divider"></div>
         <div class="brand-tagline">Talent Intelligence Platform</div>
+        <a href="/web/architecture.html" class="nav-link-arch">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6" y2="6"></line><line x1="6" y1="18" x2="6" y2="18"></line></svg>
+          Live Architecture
+        </a>
       </div>
       <div class="header-stats">
         <div class="stat-item">
