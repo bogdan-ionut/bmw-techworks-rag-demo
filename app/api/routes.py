@@ -42,6 +42,7 @@ class QueryBody(BaseModel):
     filters: Optional[Dict[str, Any]] = None  # optional explicit pinecone filter
     llm_provider: Optional[str] = None
     llm_model: Optional[str] = None
+    sources: Optional[List[Dict[str, Any]]] = None  # To re-use retrieved sources for a pure LLM call
 
 
 # -----------------------------
@@ -723,16 +724,21 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     inferred_filter = _extract_metadata_filter(query)
     flt = _merge_filters(body.filters, inferred_filter) if body.filters else inferred_filter
 
-    # 1) retrieve
-    t0 = time.time()
-    sources, retrieved_docs = _pinecone_query(request, query, top_k=k, flt=flt)
-    t1 = time.time()
+    # 1) retrieve + rerank (if sources are not passed in)
+    if body.sources and len(body.sources) > 0:
+        sources = body.sources
+        retrieved_docs = len(sources)
+        t0 = t1 = rerank_start = rerank_end = time.time()
+        rerank_sec = 0.0
+    else:
+        t0 = time.time()
+        sources, retrieved_docs = _pinecone_query(request, query, top_k=k, flt=flt)
+        t1 = time.time()
 
-    # 2) rerank (optional)
-    rerank_start = time.time()
-    sources = _cohere_rerank_sources(request, query, sources)
-    rerank_end = time.time()
-    rerank_sec = round(rerank_end - rerank_start, 2)
+        rerank_start = time.time()
+        sources = _cohere_rerank_sources(request, query, sources)
+        rerank_end = time.time()
+        rerank_sec = round(rerank_end - rerank_start, 2)
 
     # Effective top_matches count for UI/answer payload
     top_n_cfg = int(getattr(s, "context_max_people", DEFAULT_FALLBACK_TOP_N) or DEFAULT_FALLBACK_TOP_N)
