@@ -1045,8 +1045,9 @@ def meta(request: Request) -> Dict[str, Any]:
         "gemini_model": s.gemini_model,
         "available_llms": {
             "OPENAI": [
-                {"name": "GPT-4 Turbo", "value": "gpt-4-turbo-2024-04-09"},
                 {"name": "GPT-4o mini", "value": "gpt-4o-mini-2024-07-18"},
+                {"name": "GPT-5 mini", "value": "gpt-5-mini-2025-08-07"},
+                {"name": "GPT-5 nano", "value": "gpt-5-nano-2025-08-07"},
             ],
             "GEMINI": [
                 {"name": "Gemini 3 Flash", "value": "gemini-3-flash-preview"},
