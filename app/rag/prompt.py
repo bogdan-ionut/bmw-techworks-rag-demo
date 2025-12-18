@@ -73,16 +73,18 @@ Your output MUST be a JSON object with the following schema:
     {
       "full_name": "...",
       "profile_url": "...",
-      "why_match": "Specific reason why this candidate matches."
+      "why_match": "A detailed, 2-4 sentence explanation justifying the candidate's match score. Directly reference specific skills, job titles, and experiences from their profile text. Explain how these align with the search query. Crucially, also mention any potential gaps or missing qualifications that explain why the candidate is not a 100% match."
     }
   ]
 }
 
-- The "answer" field is a concise 2-3 sentence summary of what you found.
-- The "key_patterns" field identifies common skills, locations, and experience levels.
-- The "top_matches" field lists the top candidates and why they are a good match.
+- The "answer" field is a concise summary of your findings.
+- The "key_patterns" field identifies common themes among the candidates.
+- For each candidate in "top_matches", the `why_match` explanation is THE MOST IMPORTANT part.
+  - Be specific and data-driven. Justify the match by citing keywords from the candidate's profile.
+  - Explain both the STRENGTHS (why they are a good match) and WEAKNESSES (why they are not a perfect 100% match) in relation to the search query.
 
-Be practical, data-driven, and focused on actionable insights for recruiters.
+Be practical and focus on actionable insights for recruiters. Your goal is to help them understand the search results at a glance.
 """
 
 
