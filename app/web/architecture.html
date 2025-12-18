@@ -1,406 +1,695 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Living Architecture • BMW TechWorks</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            /* Design System from index.html */
-            --bg-primary: #f8fafc;
-            --bg-secondary: #ffffff;
-            --text-primary: #0f172a;
-            --text-secondary: #475569;
-            --text-tertiary: #64748b;
-            --accent-primary: #2563eb;
-            --accent-secondary: #0891b2;
-            --accent-success: #059669;
-            --border-subtle: #e2e8f0;
-            --border-medium: #cbd5e1;
-            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            --shadow-glow: 0 0 20px rgba(37, 99, 235, 0.2);
-            --font-sans: "Inter", sans-serif;
-            --font-mono: "JetBrains Mono", monospace;
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>BMW TechWorks • Live Architecture</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    /* --- DESIGN SYSTEM --- */
+    :root {
+      --bg-primary: #f8fafc;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --accent-primary: #2563eb;
+      --accent-glow: rgba(37, 99, 235, 0.12);
+      --border-subtle: #cbd5e1;
+      --shadow-soft: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+      --shadow-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+      --font-sans: "Inter", sans-serif;
+      --font-mono: "JetBrains Mono", monospace;
+    }
 
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        body {
-            font-family: var(--font-sans);
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            height: 100vh;
-            width: 100vw;
-            overflow: hidden; /* No scroll */
-            display: flex;
-            flex-direction: column;
-            background-image:
-                radial-gradient(circle at 15% 15%, rgba(37, 99, 235, 0.05) 0%, transparent 40%),
-                radial-gradient(circle at 85% 85%, rgba(5, 150, 105, 0.05) 0%, transparent 40%);
-        }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-primary);
+      background-image:
+        linear-gradient(rgba(37, 99, 235, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(37, 99, 235, 0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      color: var(--text-primary);
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
 
-        /* Header */
-        header {
-            position: absolute;
-            top: 0; left: 0; right: 0;
-            padding: 20px 32px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            z-index: 100;
-            background: linear-gradient(to bottom, rgba(248, 250, 252, 0.9), transparent);
-        }
+    /* --- HEADER --- */
+    header {
+      height: 60px;
+      flex-shrink: 0;
+      background: rgba(255, 255, 255, 0.85);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 24px;
+      z-index: 1000;
+      backdrop-filter: blur(12px);
+    }
 
-        .brand {
-            font-size: 20px;
-            font-weight: 800;
-            background: linear-gradient(135deg, #1e40af, #0e7490);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
+    .brand {
+        font-size: 18px; font-weight: 800; color: #1e40af; text-decoration: none;
+        display: flex; align-items: center; gap: 10px;
+    }
 
-        .brand-badge {
-            font-size: 11px;
-            background: rgba(37, 99, 235, 0.1);
-            color: var(--accent-primary);
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
+    .nav { display: flex; gap: 12px; }
+    .nav a {
+        text-decoration: none; color: var(--text-secondary); font-size: 13px; font-weight: 600;
+        padding: 8px 16px; border-radius: 8px; transition: all 0.2s;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .nav a:hover { background: #eff6ff; color: var(--accent-primary); }
+    .nav a.active { background: #eff6ff; color: var(--accent-primary); }
 
-        .nav-back {
-            text-decoration: none;
-            color: var(--text-secondary);
-            font-weight: 600;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            background: white;
-            border: 1px solid var(--border-subtle);
-            border-radius: 99px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-            transition: all 0.2s;
-        }
+    .status-badge {
+        display: flex; align-items: center; gap: 8px;
+        background: white; border: 1px solid #e2e8f0;
+        padding: 6px 12px; border-radius: 20px;
+        font-size: 11px; font-weight: 600; color: #64748b;
+    }
+    .status-dot {
+        width: 8px; height: 8px; background: #22c55e; border-radius: 50%;
+        box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+        animation: pulse-green 2s infinite;
+    }
+    @keyframes pulse-green { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
 
-        .nav-back:hover {
-            border-color: var(--accent-primary);
-            color: var(--accent-primary);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        }
+    /* --- CANVAS CONTAINER --- */
+    .viewport {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      position: relative;
+      cursor: grab;
+    }
+    .viewport:active { cursor: grabbing; }
 
-        /* Main Dashboard Grid */
-        .dashboard {
-            flex: 1;
-            display: grid;
-            grid-template-columns: repeat(12, 1fr);
-            grid-template-rows: repeat(12, 1fr);
-            padding: 40px;
-            position: relative;
-            max-width: 1800px;
-            margin: 0 auto;
-            width: 100%;
-        }
+    /* --- WRAPPER FOR SCALING --- */
+    .scalable-wrapper {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        /* Logical dimensions */
+        width: 1800px;
+        height: 1000px;
+        transform-origin: center center;
+        /* No transition on transform to ensure instant drag response */
+    }
 
-        /* SVG Overlay for Connectors */
-        .connectors-layer {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            z-index: 0;
-            pointer-events: none;
-        }
+    /* SVG LAYER */
+    .connections-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      pointer-events: none;
+    }
 
-        .connector-path {
-            fill: none;
-            stroke: var(--border-medium);
-            stroke-width: 2;
-            vector-effect: non-scaling-stroke;
-        }
+    .connection-line {
+      fill: none;
+      stroke: #cbd5e1;
+      stroke-width: 2px;
+    }
 
-        .connector-flow {
-            fill: none;
-            stroke: var(--accent-primary);
-            stroke-width: 2;
-            stroke-dasharray: 8 12;
-            animation: flow 1.5s linear infinite;
-            opacity: 0.6;
-            vector-effect: non-scaling-stroke;
-        }
+    .connection-dashed {
+        stroke-dasharray: 6, 6;
+        stroke: #94a3b8;
+        opacity: 0.4;
+    }
 
-        .connector-flow.secondary { stroke: var(--accent-secondary); }
-        .connector-flow.success { stroke: var(--accent-success); }
+    .packet {
+      fill: var(--accent-primary);
+      filter: drop-shadow(0 0 4px var(--accent-primary));
+    }
 
-        @keyframes flow {
-            from { stroke-dashoffset: 20; }
-            to { stroke-dashoffset: 0; }
-        }
+    /* --- GRID LAYOUT --- */
+    .arch-grid {
+      display: grid;
+      width: 100%;
+      height: 100%;
+      padding: 60px;
+      /* Cols: [Data] [User/CI] [ALB/ECR] [ECS] [Secrets/S3] [AI Stack] */
+      grid-template-columns: 240px 240px 240px 340px 220px 280px;
+      grid-template-rows: auto auto auto auto;
+      gap: 30px 50px;
+      position: relative;
+      z-index: 2;
+    }
 
-        /* Nodes */
-        .node {
-            background: rgba(255, 255, 255, 0.9);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--border-subtle);
-            border-radius: 16px;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-            box-shadow: var(--shadow-lg);
-            z-index: 10;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-            position: relative;
-            min-width: 140px;
-        }
+    /* --- NODES --- */
+    .node {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: var(--shadow-soft);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: relative;
+      transition: box-shadow 0.3s ease, border-color 0.3s ease;
+      min-height: 110px;
+      min-width: 0;
+      user-select: none;
+    }
 
-        .node:hover {
-            transform: translateY(-4px);
-            box-shadow: var(--shadow-glow), var(--shadow-lg);
-            border-color: var(--accent-primary);
-        }
+    .node:hover {
+        transform: translateY(-2px);
+        border-color: var(--accent-primary);
+        box-shadow: var(--shadow-hover);
+        z-index: 10;
+    }
 
-        .node::before { /* Pulse effect ring */
-            content: '';
-            position: absolute;
-            top: -2px; left: -2px; right: -2px; bottom: -2px;
-            border-radius: 18px;
-            border: 2px solid var(--accent-primary);
-            opacity: 0;
-            animation: pulse-ring 3s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
-        }
+    .pulse { animation: pulse-glow 4s infinite ease-in-out; }
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(37,99,235,0); border-color: var(--border-subtle); }
+      50% { box-shadow: 0 0 25px var(--accent-glow); border-color: #60a5fa; }
+    }
 
-        @keyframes pulse-ring {
-            0% { transform: scale(0.95); opacity: 0.5; }
-            100% { transform: scale(1.1); opacity: 0; }
-        }
+    .node-header { display: flex; align-items: center; gap: 12px; margin-bottom: 2px; }
+    .node-icon {
+      width: 38px; height: 38px; flex-shrink: 0;
+      background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; color: var(--text-secondary);
+    }
+    .node-titles { min-width: 0; flex: 1; }
+    .node-title { font-size: 14px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .node-sub { font-size: 10px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.8px; }
 
-        .node-icon {
-            width: 40px; height: 40px;
-            margin-bottom: 12px;
-            color: var(--accent-primary);
-            background: rgba(37, 99, 235, 0.05);
-            padding: 8px;
-            border-radius: 10px;
-        }
+    .node-details {
+        font-size: 11px;
+        color: #64748b;
+        line-height: 1.5;
+        margin-bottom: 6px;
+        white-space: normal;
+        overflow-wrap: break-word;
+    }
 
-        .node-title {
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 4px;
-        }
+    .tech-stack {
+      margin-top: auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .tech-tag {
+      font-size: 10px; font-family: var(--font-mono); color: #334155;
+      background: #f1f5f9; border: 1px solid #e2e8f0;
+      padding: 3px 8px; border-radius: 6px;
+      white-space: nowrap;
+    }
 
-        .node-label {
-            font-size: 11px;
-            color: var(--text-secondary);
-            font-family: var(--font-mono);
-            background: #f1f5f9;
-            padding: 2px 8px;
-            border-radius: 4px;
-            margin-bottom: 8px;
-        }
+    /* --- SPECIAL STYLES --- */
+    #n-ecs {
+        border: 2px solid var(--accent-primary);
+        background: #ffffff;
+        align-self: center;
+        justify-content: center;
+        box-shadow: 0 10px 30px -5px rgba(37, 99, 235, 0.15);
+    }
 
-        .node-meta {
-            font-size: 10px;
-            color: var(--text-tertiary);
-            line-height: 1.4;
-            max-width: 160px;
-        }
+    .group-label {
+        position: absolute;
+        top: -28px; left: 0;
+        font-size: 10px; font-weight: 700; letter-spacing: 1.2px; color: #94a3b8;
+        text-transform: uppercase;
+        width: 100%;
+        display: flex; align-items: center; gap: 8px;
+    }
+    .group-label::after {
+        content: ''; height: 1px; flex: 1; background: #e2e8f0;
+    }
 
-        /* Specific Node Positions (Grid Area) */
+    /* --- POSITIONING --- */
 
-        /* Center Hub */
-        #node-ecs {
-            grid-area: 6 / 6 / 8 / 8; /* Center 2x2 */
-            border-color: var(--accent-primary);
-            background: white;
-            z-index: 20;
-        }
+    /* Col 1: Data Pipeline */
+    #n-ingestion   { grid-column: 1; grid-row: 1; margin-top: 30px; }
+    #n-norm        { grid-column: 1; grid-row: 2; }
+    #n-enrichment  { grid-column: 1; grid-row: 3; margin-bottom: 30px; }
 
-        /* Input Flow */
-        #node-user { grid-area: 6 / 2 / 8 / 3; }
-        #node-alb { grid-area: 6 / 4 / 8 / 5; }
+    /* Col 2: User & CI/CD */
+    #n-user        { grid-column: 2; grid-row: 1; align-self: start; margin-top: 30px; }
+    #n-github      { grid-column: 2; grid-row: 3; align-self: end; margin-bottom: 30px; margin-top: 60px; }
 
-        /* CI/CD (Top) */
-        #node-github { grid-area: 2 / 5 / 4 / 6; }
-        #node-ecr { grid-area: 4 / 6 / 5 / 8; } /* Above ECS */
+    /* Col 3: ALB & ECR */
+    #n-alb         { grid-column: 3; grid-row: 1; align-self: start; margin-top: 30px; }
+    #n-ecr         { grid-column: 3; grid-row: 3; align-self: end; margin-bottom: 30px; margin-top: 60px; }
 
-        /* Infra (Bottom) */
-        #node-secrets { grid-area: 9 / 5 / 10 / 6; }
-        #node-s3 { grid-area: 9 / 7 / 10 / 8; }
+    /* Col 4: Core Compute */
+    #n-ecs         { grid-column: 4; grid-row: 1; grid-row-end: 4; }
 
-        /* AI Pipeline (Right - Fan Out) */
-        #node-pinecone { grid-area: 3 / 9 / 5 / 11; }
-        #node-cohere { grid-area: 6 / 10 / 8 / 12; }
-        #node-llm { grid-area: 9 / 9 / 11 / 11; }
+    /* Col 5: Dependencies */
+    #n-secrets     { grid-column: 5; grid-row: 2; align-self: start; margin-top: -30px; }
+    #n-s3          { grid-column: 5; grid-row: 3; align-self: end; margin-bottom: 60px; }
 
-        /* Legend/Stats */
-        .legend {
-            position: absolute;
-            bottom: 32px; right: 32px;
-            background: white;
-            padding: 16px;
-            border-radius: 12px;
-            border: 1px solid var(--border-subtle);
-            box-shadow: var(--shadow-lg);
-            font-size: 12px;
-        }
+    /* Col 6: AI Services */
+    .ai-stack {
+        grid-column: 6; grid-row: 1; grid-row-end: 5;
+        display: flex; flex-direction: column; justify-content: center; gap: 35px;
+    }
 
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 8px;
-            color: var(--text-secondary);
-        }
-        .legend-item:last-child { margin-bottom: 0; }
-        .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+    /* --- ZOOM CONTROLS --- */
+    .zoom-controls {
+        position: fixed;
+        bottom: 30px;
+        right: 30px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        z-index: 100;
+        background: white;
+        padding: 8px;
+        border-radius: 12px;
+        box-shadow: var(--shadow-hover);
+        border: 1px solid var(--border-subtle);
+    }
 
-    </style>
+    .zoom-btn {
+        width: 40px;
+        height: 40px;
+        border: none;
+        background: #f8fafc;
+        border-radius: 8px;
+        color: var(--text-primary);
+        font-size: 20px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .zoom-btn:hover { background: #e2e8f0; color: var(--accent-primary); }
+    .zoom-btn:active { transform: scale(0.95); }
+
+  </style>
 </head>
 <body>
-    <header>
-        <div class="brand">
-            BMW TechWorks
-            <span class="brand-badge">Living Architecture</span>
-        </div>
-        <a href="/" class="nav-back">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-            Back to Search
-        </a>
-    </header>
 
-    <div class="dashboard">
-        <!-- SVG Connectors -->
-        <svg class="connectors-layer" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <!-- Definitions -->
+  <header>
+    <a href="/" class="brand">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        BMW TechWorks
+    </a>
+    <div class="status-badge">
+        <div class="status-dot"></div>
+        SYSTEM ONLINE
+    </div>
+    <nav class="nav">
+      <a href="/">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Search Demo
+      </a>
+      <a href="#" class="active">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6" y2="6"/><line x1="6" y1="18" x2="6" y2="18"/></svg>
+        Live Architecture
+      </a>
+    </nav>
+  </header>
+
+  <div class="viewport" id="viewport">
+    <div class="scalable-wrapper" id="wrapper">
+
+        <svg class="connections-layer" id="svgLayer">
             <defs>
-                <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-                    <path d="M0,0 L0,6 L9,3 z" fill="#cbd5e1" />
-                </marker>
+                <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#cbd5e1" /></marker>
             </defs>
-
-            <!-- Paths (Coordinates normalized to 0-100 grid) -->
-            <!-- User -> ALB -->
-            <path d="M 18 54 L 32 54" class="connector-path" />
-            <path d="M 18 54 L 32 54" class="connector-flow" />
-
-            <!-- ALB -> ECS -->
-            <path d="M 38 54 L 45 54" class="connector-path" />
-            <path d="M 38 54 L 45 54" class="connector-flow" />
-
-            <!-- GitHub -> ECR -> ECS -->
-            <path d="M 45 20 L 54 20 L 54 30" class="connector-path" marker-end="url(#arrow)" />
-            <path d="M 54 38 L 54 45" class="connector-path" marker-end="url(#arrow)" />
-
-            <!-- ECS -> Dependencies (Bottom) -->
-            <!-- Secrets -->
-            <path d="M 50 65 L 45 75" class="connector-path" style="stroke-dasharray: 4;" />
-            <!-- S3 -->
-            <path d="M 58 65 L 62 75" class="connector-path" style="stroke-dasharray: 4;" />
-
-            <!-- AI Pipeline (Right) -->
-            <!-- ECS -> Pinecone (Top Right) -->
-            <path d="M 62 50 C 70 50, 70 35, 75 35" class="connector-path" />
-            <path d="M 62 50 C 70 50, 70 35, 75 35" class="connector-flow secondary" />
-
-            <!-- ECS -> Cohere (Right) -->
-            <path d="M 62 54 L 78 54" class="connector-path" />
-            <path d="M 62 54 L 78 54" class="connector-flow secondary" />
-
-            <!-- ECS -> LLM (Bottom Right) -->
-            <path d="M 62 58 C 70 58, 70 75, 75 75" class="connector-path" />
-            <path d="M 62 58 C 70 58, 70 75, 75 75" class="connector-flow success" />
         </svg>
 
-        <!-- Nodes -->
+        <div class="arch-grid" id="grid">
 
-        <!-- 1. User -->
-        <div id="node-user" class="node">
-            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-            <div class="node-title">User</div>
-            <div class="node-label">Web Client</div>
-        </div>
+            <div class="node" id="n-ingestion">
+                <div class="group-label">Data Pipeline (Offline)</div>
+                <div class="node-header">
+                    <div class="node-icon">🕷️</div>
+                    <div class="node-titles"><div class="node-title">Acquisition</div><div class="node-sub">PhantomBuster</div></div>
+                </div>
+                <div class="node-details">Scraped ~480 public profiles. Aggregated 17 JSON sources.</div>
+                <div class="tech-stack"><span class="tech-tag">JSONL</span><span class="tech-tag">Scraping</span></div>
+            </div>
 
-        <!-- 2. ALB -->
-        <div id="node-alb" class="node">
-            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6" y2="6"></line><line x1="6" y1="18" x2="6" y2="18"></line></svg>
-            <div class="node-title">AWS ALB</div>
-            <div class="node-label">Load Balancer</div>
-            <div class="node-meta">HTTPS / TLS Termination</div>
-        </div>
+            <div class="node" id="n-norm">
+                <div class="node-header">
+                    <div class="node-icon">🧹</div>
+                    <div class="node-titles"><div class="node-title">Normalization & Std</div><div class="node-sub">Processing</div></div>
+                </div>
+                <div class="node-details">
+                    • Diacritics Removal<br>
+                    • Location Standardization<br>
+                    • Schema Unification
+                </div>
+                <div class="tech-stack"><span class="tech-tag">Python Script</span></div>
+            </div>
 
-        <!-- 3. ECS Fargate (Hub) -->
-        <div id="node-ecs" class="node">
-            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>
-            <div class="node-title">ECS Fargate</div>
-            <div class="node-label">FastAPI Container</div>
-            <div class="node-meta">Orchestrator<br>Query Planner</div>
-        </div>
+            <div class="node" id="n-enrichment">
+                <div class="node-header">
+                    <div class="node-icon">✨</div>
+                    <div class="node-titles"><div class="node-title">Enrichment</div><div class="node-sub">Visual AI</div></div>
+                </div>
+                <div class="node-details">
+                    • <code>minimum_estimated_years_of_exp</code> calculated.<br>
+                    • Images analyzed by <strong>GPT-5.2 Vision</strong>.
+                </div>
+                <div class="tech-stack"><span class="tech-tag">GPT-5.2</span><span class="tech-tag">Metadata</span></div>
+            </div>
 
-        <!-- 4. CI/CD Pipeline -->
-        <div id="node-github" class="node" style="transform: scale(0.9);">
-            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
-            <div class="node-title">GitHub Actions</div>
-            <div class="node-meta">CI/CD Pipeline</div>
-        </div>
-        <div id="node-ecr" class="node" style="transform: scale(0.9);">
-            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
-            <div class="node-title">AWS ECR</div>
-            <div class="node-meta">Image Registry</div>
-        </div>
+            <div class="node pulse" id="n-user">
+                <div class="group-label">Frontend</div>
+                <div class="node-header">
+                    <div class="node-icon">👤</div>
+                    <div class="node-titles"><div class="node-title">User Browser</div><div class="node-sub">Client</div></div>
+                </div>
+                <div class="node-details" style="font-family:monospace; font-size:10px; color:#2563eb; word-break: break-all;">
+                    rag-demo.ionutbogdan.ro
+                </div>
+                <div class="tech-stack"><span class="tech-tag">HTTPS</span><span class="tech-tag">Fetch API</span></div>
+            </div>
 
-        <!-- 5. Infrastructure -->
-        <div id="node-secrets" class="node" style="transform: scale(0.9);">
-            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-            <div class="node-title">Secrets Manager</div>
-            <div class="node-meta">API Keys & Config</div>
-        </div>
-        <div id="node-s3" class="node" style="transform: scale(0.9);">
-            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-            <div class="node-title">AWS S3</div>
-            <div class="node-meta">Profile Images</div>
-        </div>
+            <div class="node" id="n-github">
+                <div class="group-label">CI/CD Pipeline</div>
+                <div class="node-header">
+                    <div class="node-icon">🐙</div>
+                    <div class="node-titles"><div class="node-title">GitHub Actions</div><div class="node-sub">Automation</div></div>
+                </div>
+                <div class="node-details">Push -> Build -> Test -> Deploy.</div>
+                <div class="tech-stack"><span class="tech-tag">GitHub Secrets</span><span class="tech-tag">Pytest</span></div>
+            </div>
 
-        <!-- 6. AI Pipeline -->
-        <div id="node-pinecone" class="node">
-            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>
-            <div class="node-title">Pinecone</div>
-            <div class="node-label">Vector DB</div>
-            <div class="node-meta">text-embedding-3-large<br>Namespace: profiles</div>
-        </div>
+            <div class="node" id="n-alb">
+                <div class="node-header">
+                    <div class="node-icon">🛡️</div>
+                    <div class="node-titles"><div class="node-title">AWS ALB</div><div class="node-sub">Load Balancer</div></div>
+                </div>
+                <div class="node-details">TLS Termination (ACM). Rules for HTTP/HTTPS.</div>
+                <div class="tech-stack"><span class="tech-tag">Port 443</span><span class="tech-tag">WAF</span></div>
+            </div>
 
-        <div id="node-cohere" class="node">
-            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20l9-16-9 7-9-7 9 16z"></path></svg>
-            <div class="node-title">Cohere</div>
-            <div class="node-label">Reranker</div>
-            <div class="node-meta">rerank-english-v3.0<br>Top N: 8</div>
-        </div>
+            <div class="node" id="n-ecr">
+                <div class="node-header">
+                    <div class="node-icon">📦</div>
+                    <div class="node-titles"><div class="node-title">AWS ECR</div><div class="node-sub">Registry</div></div>
+                </div>
+                <div class="node-details">Stores production Docker images.</div>
+                <div class="tech-stack"><span class="tech-tag">my-bmw-demo</span><span class="tech-tag">SHA Tags</span></div>
+            </div>
 
-        <div id="node-llm" class="node">
-            <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="7" height="7" rx="1"></rect><rect x="14" y="13" width="7" height="7" rx="1"></rect><path d="M10 8h4"></path><path d="M17 10v3"></path><path d="M7 14h3"></path></svg>
-            <div class="node-title">LLM Provider</div>
-            <div class="node-label">OpenAI / Gemini</div>
-            <div class="node-meta">gpt-4o-mini<br>gemini-1.5-flash</div>
-        </div>
+            <div class="node pulse" id="n-ecs">
+                <div class="node-header">
+                    <div class="node-icon" style="color:#2563eb; background:#eff6ff;">⚙️</div>
+                    <div class="node-titles"><div class="node-title">AWS ECS Fargate</div><div class="node-sub">bmw-service</div></div>
+                </div>
+                <div class="node-details" style="font-size:12px; margin: 16px 0; line-height:1.6;">
+                    • <strong>FastAPI</strong> (Python 3.11)<br>
+                    • <strong>LangChain</strong> Orchestrator<br>
+                    • Serverless (0.5 vCPU, 3GB)<br>
+                    • Role: <code>ecsTaskExecutionRole</code><br>
+                    • Task: <code>bmw-task:35</code>
+                </div>
+                <div class="tech-stack">
+                    <span class="tech-tag">Uvicorn</span>
+                    <span class="tech-tag">Auto-scale</span>
+                    <span class="tech-tag">Docker</span>
+                </div>
+            </div>
 
-        <div class="legend">
-            <div class="legend-item"><div class="legend-dot" style="background:var(--accent-primary);"></div> Traffic Flow</div>
-            <div class="legend-item"><div class="legend-dot" style="background:var(--accent-secondary);"></div> Vector Search</div>
-            <div class="legend-item"><div class="legend-dot" style="background:var(--accent-success);"></div> AI Response</div>
+            <div class="node" id="n-secrets">
+                <div class="group-label">Security</div>
+                <div class="node-header">
+                    <div class="node-icon">🔒</div>
+                    <div class="node-titles"><div class="node-title">Secrets Mgr</div><div class="node-sub">Config</div></div>
+                </div>
+                <div class="node-details">Dynamic injection of API keys. No hardcoded creds.</div>
+                <div class="tech-stack"><span class="tech-tag">IAM Auth</span><span class="tech-tag">Zero Trust</span></div>
+            </div>
+
+            <div class="node" id="n-s3">
+                <div class="group-label" style="top: auto; bottom: -25px;">Storage</div>
+                <div class="node-header">
+                    <div class="node-icon">💾</div>
+                    <div class="node-titles"><div class="node-title">AWS S3</div><div class="node-sub">Assets</div></div>
+                </div>
+                <div class="node-details">Stores profile images and raw JSONL backup.</div>
+                <div class="tech-stack"><span class="tech-tag">Profile Images</span><span class="tech-tag">Data Lake</span></div>
+            </div>
+
+            <div class="ai-stack">
+                <div class="node pulse" id="n-pinecone">
+                    <div class="group-label">Generative AI</div>
+                    <div class="node-header">
+                        <div class="node-icon">🌲</div>
+                        <div class="node-titles"><div class="node-title">Pinecone</div><div class="node-sub">Vector DB</div></div>
+                    </div>
+                    <div class="node-details">Serverless Index. Hybrid search with metadata.</div>
+                    <div class="tech-stack"><span class="tech-tag">text-embedding-3-large</span></div>
+                </div>
+
+                <div class="node pulse" id="n-cohere">
+                    <div class="node-header">
+                        <div class="node-icon">🌪️</div>
+                        <div class="node-titles"><div class="node-title">Cohere</div><div class="node-sub">Reranker</div></div>
+                    </div>
+                    <div class="node-details">Precision re-scoring of top results.</div>
+                    <div class="tech-stack"><span class="tech-tag">rerank-english-v3.0</span><span class="tech-tag">Top N: 8</span></div>
+                </div>
+
+                <div class="node pulse" id="n-llm">
+                    <div class="node-header">
+                        <div class="node-icon">🧠</div>
+                        <div class="node-titles"><div class="node-title">LLM Provider</div><div class="node-sub">Reasoning</div></div>
+                    </div>
+                    <div class="node-details">Synthesis & candidate analysis.</div>
+                    <div class="tech-stack">
+                        <span class="tech-tag">GPT-4o mini</span>
+                        <span class="tech-tag">Gemini 3 Flash</span>
+                        <span class="tech-tag">Gemini 2.5</span>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
+  </div>
+
+  <div class="zoom-controls">
+      <button class="zoom-btn" onclick="zoomIn()">+</button>
+      <button class="zoom-btn" onclick="zoomOut()">−</button>
+  </div>
+
+  <script>
+    const wrapper = document.getElementById('wrapper');
+    const svg = document.getElementById('svgLayer');
+    const viewport = document.getElementById('viewport');
+
+    // --- STATE ---
+    let currentScale = 1;
+    // Initial centering logic:
+    // The wrapper is 1800x1000, positioned at top:50%, left:50%.
+    // To center it perfectly, we normally translate by -50% of its size (-900, -500).
+    // ADJUSTMENT: Shifted X by -60px (to -960) to visually balance the diagram on load.
+    let contentX = -960;
+    let contentY = -500;
+
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+
+    // --- FIT & RENDER ---
+    function fitToScreen() {
+        const paddingX = 40;
+        const paddingY = 80;
+
+        const availableW = window.innerWidth - paddingX;
+        const availableH = window.innerHeight - paddingY;
+
+        const logicalW = 1800;
+        const logicalH = 1000;
+
+        const scaleW = availableW / logicalW;
+        const scaleH = availableH / logicalH;
+
+        // 95% Fit for impact + 0.1 boost for larger initial size
+        currentScale = (Math.min(scaleW, scaleH) * 0.95) + 0.1;
+
+        // Safety bounds
+        if(currentScale > 1.8) currentScale = 1.8;
+        if(currentScale < 0.3) currentScale = 0.3;
+
+        // Reset to center (with visual adjustment)
+        contentX = -960;
+        contentY = -500;
+
+        updateTransform();
+    }
+
+    function updateTransform() {
+        wrapper.style.transform = `translate(${contentX}px, ${contentY}px) scale(${currentScale})`;
+    }
+
+    function zoomIn() {
+        if(currentScale < 2.0) {
+            currentScale += 0.1;
+            updateTransform();
+        }
+    }
+
+    function zoomOut() {
+        if(currentScale > 0.3) {
+            currentScale -= 0.1;
+            updateTransform();
+        }
+    }
+
+    // --- DRAG LOGIC (Coordinate-based) ---
+    viewport.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        viewport.style.cursor = 'grabbing';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        e.preventDefault();
+
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        // Update content position directly
+        // We divide by scale so the drag feels 1:1 with mouse movement
+        contentX += dx / currentScale;
+        contentY += dy / currentScale;
+
+        startX = e.clientX;
+        startY = e.clientY;
+
+        updateTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+        isDragging = false;
+        viewport.style.cursor = 'grab';
+    });
+
+    // --- CONNECTORS (Robust) ---
+    function connect(id1, id2, type = 'flow', anchor = 'auto') {
+        const el1 = document.getElementById(id1);
+        const el2 = document.getElementById(id2);
+        if(!el1 || !el2) return;
+
+        // Use offset coordinates relative to the wrapper
+        const x1 = el1.offsetLeft;
+        const y1 = el1.offsetTop;
+        const w1 = el1.offsetWidth;
+        const h1 = el1.offsetHeight;
+
+        const x2 = el2.offsetLeft;
+        const y2 = el2.offsetTop;
+        const w2 = el2.offsetWidth;
+        const h2 = el2.offsetHeight;
+
+        let startX = x1 + w1;
+        let startY = y1 + h1 / 2;
+        let endX = x2;
+        let endY = y2 + h2 / 2;
+
+        if (anchor === 'vertical') {
+            startX = x1 + w1 / 2;
+            startY = y1 + h1;
+            endX = x2 + w2 / 2;
+            endY = y2;
+        } else if (anchor === 'ecs-fan-out') {
+            startX = x1 + w1;
+            if(y2 < y1) startY = y1 + h1 * 0.25;
+            else if (y2 > y1 + h1) startY = y1 + h1 * 0.75;
+            else startY = y1 + h1 * 0.5;
+            endX = x2;
+            endY = y2 + h2 / 2;
+        }
+
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const dx = Math.abs(endX - startX);
+        const dy = Math.abs(endY - startY);
+        let d = "";
+
+        if (anchor === 'vertical') {
+             d = `M ${startX} ${startY} C ${startX} ${startY + dy * 0.5}, ${endX} ${endY - dy * 0.5}, ${endX} ${endY}`;
+        } else {
+             d = `M ${startX} ${startY} C ${startX + dx * 0.5} ${startY}, ${endX - dx * 0.5} ${endY}, ${endX} ${endY}`;
+        }
+
+        path.setAttribute("d", d);
+        if(type === 'static') {
+            path.setAttribute("class", "connection-line connection-dashed");
+        } else {
+            path.setAttribute("class", "connection-line");
+            addPacket(d);
+        }
+        svg.appendChild(path);
+    }
+
+    function addPacket(pathData) {
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("r", "3");
+        circle.setAttribute("class", "packet");
+        const animate = document.createElementNS("http://www.w3.org/2000/svg", "animateMotion");
+        animate.setAttribute("dur", (1.5 + Math.random()) + "s");
+        animate.setAttribute("repeatCount", "indefinite");
+        animate.setAttribute("path", pathData);
+        animate.setAttribute("begin", "-" + Math.random() + "s");
+        circle.appendChild(animate);
+        svg.appendChild(circle);
+    }
+
+    function draw() {
+        svg.innerHTML = '';
+        const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+        defs.innerHTML = `<marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#cbd5e1" /></marker>`;
+        svg.appendChild(defs);
+
+        connect('n-ingestion', 'n-norm', 'static', 'vertical');
+        connect('n-norm', 'n-enrichment', 'static', 'vertical');
+        connect('n-enrichment', 'n-s3', 'static');
+
+        connect('n-github', 'n-ecr', 'static');
+        connect('n-ecr', 'n-ecs', 'static');
+
+        connect('n-user', 'n-alb');
+        connect('n-alb', 'n-ecs');
+
+        connect('n-ecs', 'n-secrets', 'static');
+        connect('n-ecs', 'n-s3', 'static');
+
+        connect('n-ecs', 'n-pinecone', 'flow', 'ecs-fan-out');
+        connect('n-ecs', 'n-cohere', 'flow', 'ecs-fan-out');
+        connect('n-ecs', 'n-llm', 'flow', 'ecs-fan-out');
+    }
+
+    // Init
+    window.addEventListener('load', () => {
+        fitToScreen();
+        // Delay draw to ensure font metrics are ready
+        setTimeout(draw, 100);
+    });
+
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            fitToScreen();
+            draw(); // Safety redraw
+        }, 100);
+    });
+
+  </script>
 </body>
 </html>
