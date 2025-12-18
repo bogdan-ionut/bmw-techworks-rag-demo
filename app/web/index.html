@@ -1246,11 +1246,7 @@
             <div class="control-item">
               <label for="llmModel">LLM Model</label>
               <select id="llmModel">
-                <option value="gpt-5-mini-2025-08-07" data-provider="OPENAI">OpenAI · gpt-5-mini-2025-08-07</option>
-                <option value="gpt-5-nano-2025-08-07" data-provider="OPENAI">OpenAI · gpt-5-nano-2025-08-07</option>
-                <option value="gpt-4o-mini-2024-07-18" data-provider="OPENAI" selected>OpenAI · gpt-4o-mini-2024-07-18</option>
-                <option value="gemini-3-flash-preview" data-provider="GEMINI">Gemini · gemini-3-flash-preview</option>
-                <option value="gemini-2.5-flash" data-provider="GEMINI">Gemini · gemini-2.5-flash</option>
+                <!-- Populated by script -->
               </select>
             </div>
             <div class="control-item">
@@ -1740,7 +1736,48 @@
         }
     }
 
+    async function populateLlmSelector() {
+      try {
+        const res = await fetch('/meta');
+        if (!res.ok) throw new Error('Failed to fetch metadata');
+        const meta = await res.json();
+
+        const llms = meta.available_llms || {};
+        const defaultOpenai = meta.openai_model || '';
+        const defaultGemini = meta.gemini_model || '';
+
+        let html = '';
+
+        if (llms.OPENAI) {
+          html += `<optgroup label="OpenAI">`;
+          llms.OPENAI.forEach(m => {
+            const isSelected = m.value === defaultOpenai ? 'selected' : '';
+            html += `<option value="${escapeHtml(m.value)}" data-provider="OPENAI" ${isSelected}>${escapeHtml(m.name)}</option>`;
+          });
+          html += `</optgroup>`;
+        }
+
+        if (llms.GEMINI) {
+          html += `<optgroup label="Google Gemini">`;
+          llms.GEMINI.forEach(m => {
+            const isSelected = m.value === defaultGemini ? 'selected' : '';
+            html += `<option value="${escapeHtml(m.value)}" data-provider="GEMINI" ${isSelected}>${escapeHtml(m.name)}</option>`;
+          });
+          html += `</optgroup>`;
+        }
+
+        llmModelSelect.innerHTML = html;
+      } catch (e) {
+        console.error("Could not populate LLM selector:", e);
+        llmModelSelect.innerHTML = `<option value="">Error loading models</option>`;
+      }
+    }
+
     // Event Listeners
+    document.addEventListener('DOMContentLoaded', () => {
+      populateLlmSelector();
+    });
+
     retrievalK.addEventListener('blur', () => sanitizeRetrievalValue());
 
     searchBtn.addEventListener('click', handleSearch);

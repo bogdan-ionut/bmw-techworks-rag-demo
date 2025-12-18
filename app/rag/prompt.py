@@ -79,6 +79,7 @@ Your output MUST be a JSON object with the following schema:
 }
 
 - The "answer" field is a concise summary of your findings.
+- IMPORTANT: If the number of `top_matches` you return is less than the total number of candidate profiles reviewed, you MUST state this clearly in your "answer". For example: "From the 12 retrieved profiles, here is an analysis of the top 8 matches based on the criteria."
 - The "key_patterns" field identifies common themes among the candidates.
 - For each candidate in "top_matches", the `why_match` explanation is THE MOST IMPORTANT part.
   - Be specific and data-driven. Justify the match by citing keywords from the candidate's profile.
