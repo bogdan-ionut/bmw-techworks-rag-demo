@@ -433,6 +433,13 @@
       box-shadow: var(--shadow-md);
     }
 
+    .filter-chip.selected {
+      background: #eff6ff;
+      border-color: var(--accent-primary);
+      color: var(--accent-primary);
+      box-shadow: 0 0 0 1px var(--accent-primary), var(--shadow-md);
+    }
+
     /* Smart Filters - TAGS */
     .smart-filters {
       display: flex;
@@ -966,11 +973,25 @@
     <div class="filter-chip" data-query="Data scientists with computer vision skills">Computer Vision</div>
   </div>
 
+  <div class="section-label">Search Metadata</div>
+  <div class="smart-filters">
+    <div class="smart-filter-chip metadata-chip" data-val="Python">Python</div>
+    <div class="smart-filter-chip metadata-chip" data-val="Java">Java</div>
+    <div class="smart-filter-chip metadata-chip" data-val="C++">C++</div>
+    <div class="smart-filter-chip metadata-chip" data-val="React">React</div>
+    <div class="smart-filter-chip metadata-chip" data-val="Node.js">Node.js</div>
+    <div class="smart-filter-chip metadata-chip" data-val="AWS">AWS</div>
+    <div class="smart-filter-chip metadata-chip" data-val="Machine Learning">Machine Learning</div>
+    <div class="smart-filter-chip metadata-chip" data-val="Romania">Romania</div>
+    <div class="smart-filter-chip metadata-chip" data-val="Munich">Munich</div>
+    <div class="smart-filter-chip metadata-chip" data-val="Senior">Senior</div>
+    <div class="smart-filter-chip metadata-chip" data-val="Lead">Lead</div>
+  </div>
+
   <div class="section-label">Visual Filters</div>
   <div class="smart-filters">
     <div class="smart-filter-chip" data-filter="Beard">Beard</div>
     <div class="smart-filter-chip" data-filter="Glasses">Glasses</div>
-    <div class="smart-filter-chip" data-filter="Smiling">Smiling</div>
     <div class="smart-filter-chip" data-filter="Tie">Tie</div>
     <div class="smart-filter-chip" data-filter="Suit">Suit</div>
     <div class="smart-filter-chip" data-filter="Blazer">Blazer</div>
@@ -980,10 +1001,7 @@
     <div class="smart-filter-chip" data-filter="Blonde">Blonde</div>
     <div class="smart-filter-chip" data-filter="Dark Hair">Dark Hair</div>
     <div class="smart-filter-chip" data-filter="Grey Hair">Grey Hair</div>
-    <div class="smart-filter-chip" data-filter="Outdoor">Outdoor</div>
-    <div class="smart-filter-chip" data-filter="Indoor">Indoor</div>
     <div class="smart-filter-chip" data-filter="Headshot">Headshot</div>
-    <div class="smart-filter-chip" data-filter="Candid">Candid</div>
   </div>
 
   <main class="main-container">
@@ -1038,6 +1056,8 @@
     let currentInsights = null;
     let abortController = null;
     let selectedSmartFilters = new Set();
+    let selectedMetadata = new Set();
+    let selectedProposedChip = null;
 
     // DOM Elements
     const searchInput = document.getElementById('searchInput');
@@ -1355,6 +1375,13 @@
         let query = searchInput.value.trim();
         if (!query) return;
 
+        // Append metadata to query
+        if (selectedMetadata.size > 0) {
+            const meta = Array.from(selectedMetadata).join(' ');
+            query += ` ${meta}`;
+        }
+
+        // Append visual filters to query
         if (selectedSmartFilters.size > 0) {
             const filters = Array.from(selectedSmartFilters).join(', ');
             query += ` with ${filters}`;
@@ -1509,14 +1536,52 @@
         }
     });
 
+    // Handle user typing: deselect proposed search if text changes from the preset?
+    // Actually, simply deselecting the chip visually is enough to indicate custom input.
+    searchInput.addEventListener('input', () => {
+        if (selectedProposedChip) {
+            selectedProposedChip.classList.remove('selected');
+            selectedProposedChip = null;
+        }
+    });
+
+    // Proposed Searches (Selectable)
     document.querySelectorAll('.filter-chip').forEach(chip => {
         chip.addEventListener('click', () => {
-            searchInput.value = chip.dataset.query;
-            handleSearch();
+            // Deselect previous
+            if (selectedProposedChip) {
+                selectedProposedChip.classList.remove('selected');
+            }
+
+            // If clicking the same one, toggle off
+            if (selectedProposedChip === chip) {
+                selectedProposedChip = null;
+                searchInput.value = ''; // Clear or keep? Let's clear to reset.
+            } else {
+                // Select new
+                selectedProposedChip = chip;
+                chip.classList.add('selected');
+                searchInput.value = chip.dataset.query;
+            }
+            // Do NOT trigger handleSearch() immediately
         });
     });
 
-    document.querySelectorAll('.smart-filter-chip').forEach(chip => {
+    // Metadata Filters
+    document.querySelectorAll('.metadata-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const val = chip.dataset.val;
+            chip.classList.toggle('selected');
+            if (selectedMetadata.has(val)) {
+                selectedMetadata.delete(val);
+            } else {
+                selectedMetadata.add(val);
+            }
+        });
+    });
+
+    // Visual Filters
+    document.querySelectorAll('.smart-filter-chip:not(.metadata-chip)').forEach(chip => {
         chip.addEventListener('click', () => {
             const filter = chip.dataset.filter;
             chip.classList.toggle('selected');
