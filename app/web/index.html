@@ -342,6 +342,11 @@
       cursor: pointer;
       user-select: none;
       font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .control-item.llm-selector select {
+      max-width: 140px;
     }
 
     select {
@@ -1243,7 +1248,7 @@
               <label for="retrievalK">Retrieve:</label>
               <input id="retrievalK" type="number" min="1" max="32" step="1" value="24" />
             </div>
-            <div class="control-item">
+            <div class="control-item llm-selector">
               <label for="llmModel">LLM Model</label>
               <select id="llmModel">
                 <!-- Populated by script -->

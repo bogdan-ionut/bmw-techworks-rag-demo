@@ -34,9 +34,9 @@ Rules:
   tech_tokens (list of strings)
   image_search_tags (list of strings)
 
-- If the user asks for eyeglasses/glasses/spectacles -> eyewear_present=true.
-- If the user asks for "no glasses" -> eyewear_present=false.
-- If the user asks for beard -> beard_present=true; clean-shaven -> beard_present=false.
+- For visual attributes (e.g., "eyeglasses", "smiling", "beard"), use the boolean `eyewear_present`, `beard_present`, or `image_search_tags` filters.
+- **IMPORTANT**: Remove visual descriptors from the `semantic_query` to avoid biasing the vector search. The `semantic_query` should only contain professional criteria (skills, roles, experience).
+- If a user asks for "python engineers with eyeglasses", the `semantic_query` should be "python engineers" and the filter should be `{"eyewear_present": {"$eq": true}}`.
 - If you are unsure, omit the filter (do not guess).
 
 Filter format must be Pinecone-compatible:
