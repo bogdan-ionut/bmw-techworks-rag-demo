@@ -31,7 +31,7 @@ except Exception:
 # -----------------------------------------------------------------------------
 PROJECT_DIR = Path(__file__).resolve().parents[2]  # .../bmw-techworks-rag-demo
 DATA_DIR = PROJECT_DIR / "data"
-DEFAULT_JSONL_PATH = DATA_DIR / "bmw_employees.jsonl"
+DEFAULT_JSONL_PATH = DATA_DIR / "bmw_employees_cleaned_s3.jsonl"
 
 DEFAULT_AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 DEFAULT_AWS_SECRET_NAME = os.getenv("AWS_SECRET_NAME", "bmw-techworks-rag-demo/secrets")
@@ -359,7 +359,7 @@ def get_pinecone_index(pc: Pinecone, index_name: str):
 def main() -> None:
     load_dotenv(PROJECT_DIR / ".env")
 
-    parser = argparse.ArgumentParser(description="Build Pinecone index from bmw_employees.jsonl")
+    parser = argparse.ArgumentParser(description="Build Pinecone index from bmw_employees_cleaned_s3.jsonl")
     parser.add_argument("--jsonl", type=str, default=str(DEFAULT_JSONL_PATH), help="Path to JSONL file")
     parser.add_argument("--secret-name", type=str, default=DEFAULT_AWS_SECRET_NAME, help="AWS Secrets Manager secret name")
     parser.add_argument("--region", type=str, default=DEFAULT_AWS_REGION, help="AWS region for Secrets Manager/S3")

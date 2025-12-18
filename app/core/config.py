@@ -162,7 +162,7 @@ def get_settings() -> Settings:
         skip_llm_for_short=pick("SKIP_LLM_FOR_SHORT", "0") == "1",
 
         temperature=float(pick("TEMPERATURE", "0.1")),
-        max_tokens=int(pick("MAX_TOKENS", "1200")),
+        max_tokens=int(pick("MAX_TOKENS", "1500")),
 
         cache_ttl_sec=int(pick("CACHE_TTL_SEC", "600")),
 
@@ -171,6 +171,6 @@ def get_settings() -> Settings:
 
         data_jsonl_path=pick(
             "DATA_JSONL_PATH",
-            "/Users/ionutbogdan/PycharmProjects/bmw-techworks-rag-demo/data/bmw_employees.jsonl",
+            "/Users/ionutbogdan/PycharmProjects/bmw-techworks-rag-demo/data/bmw_employees_cleaned_s3.jsonl",
         ),
     )
