@@ -1368,9 +1368,15 @@
     }
 
     function sanitizeRetrievalValue(defaultValue = 24) {
-      let val = parseInt(retrievalK.value, 10);
-      if (Number.isNaN(val)) val = defaultValue;
-      val = Math.max(1, Math.min(32, val));
+      const trimmedValue = retrievalK.value.trim();
+      if (trimmedValue === '') {
+        retrievalK.value = defaultValue;
+        return defaultValue;
+      }
+      let val = parseInt(trimmedValue, 10);
+      if (Number.isNaN(val) || val < 1 || val > 32) {
+        val = defaultValue;
+      }
       retrievalK.value = val;
       return val;
     }
@@ -1735,9 +1741,7 @@
     }
 
     // Event Listeners
-    ['input','blur'].forEach(evt => {
-        retrievalK.addEventListener(evt, () => sanitizeRetrievalValue());
-    });
+    retrievalK.addEventListener('blur', () => sanitizeRetrievalValue());
 
     searchBtn.addEventListener('click', handleSearch);
 

@@ -21,7 +21,11 @@ try:
 except Exception:
     ChatGoogleGenerativeAI = None
 
-from app.rag.prompt import ANSWER_SYSTEM_PROMPT, format_candidates_for_prompt
+from app.rag.prompt import (
+    ANSWER_SYSTEM_PROMPT,
+    PLANNER_SYSTEM_PROMPT,
+    format_candidates_for_prompt,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -43,6 +47,7 @@ class QueryBody(BaseModel):
     llm_provider: Optional[str] = None
     llm_model: Optional[str] = None
     sources: Optional[List[Dict[str, Any]]] = None  # To re-use retrieved sources for a pure LLM call
+    planner: bool = True  # Use LLM query planner
 
 
 # -----------------------------
@@ -324,6 +329,52 @@ def _log_llm_raw_output(resp: Any, raw: str, provider: str, model: Optional[str]
 
 
 # -----------------------------
+# Query planner (LLM-based filter extraction)
+# -----------------------------
+def _run_query_planner(
+    request: Request,
+    query: str,
+    provider: str,
+    model: str,
+) -> Dict[str, Any]:
+    """
+    Uses an LLM to decompose a natural language query into:
+    - a structured metadata filter
+    - a clean semantic query for vector search
+    """
+    llm = _get_llm_client(request, provider, model)
+    try:
+        resp = llm.invoke(
+            [
+                SystemMessage(content=PLANNER_SYSTEM_PROMPT),
+                HumanMessage(content=f"User query: \"\"\"{query}\"\"\""),
+            ]
+        )
+        raw = _coerce_llm_text(getattr(resp, "content", resp) or "")
+        _log_llm_raw_output(resp, raw, provider, model)
+        parsed = _safe_json_loads(raw)
+
+        logger.info(
+            "Query planner ran successfully",
+            extra={
+                "query": query,
+                "llm_provider": provider,
+                "llm_model": model,
+                "planner_output": parsed,
+            },
+        )
+        return parsed
+
+    except Exception as e:
+        logger.exception(
+            "Query planner failed",
+            extra={"query": query, "llm_provider": provider, "llm_model": model, "error": str(e)},
+        )
+        # Fallback to pure semantic search on failure
+        return {"semantic_query": query, "filter": None}
+
+
+# -----------------------------
 # Utils
 # -----------------------------
 def _normalize_linkedin(url: Optional[str]) -> str:
@@ -510,47 +561,6 @@ def _coerce_answer_obj(
 
 
 # -----------------------------
-# Filter extraction (cheap + reliable)
-# -----------------------------
-_GLASSES_TRUE = re.compile(r"\b(eyeglasses|eye-glasses|glasses|spectacles)\b", re.I)
-_GLASSES_FALSE = re.compile(r"\b(no glasses|without glasses|no eyewear)\b", re.I)
-
-_BEARD_TRUE = re.compile(r"\b(beard|bearded|mustache|moustache)\b", re.I)
-_BEARD_FALSE = re.compile(r"\b(clean[- ]shaven|no beard)\b", re.I)
-
-
-def _merge_filters(a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    if not a and not b:
-        return None
-    if a and not b:
-        return a
-    if b and not a:
-        return b
-    return {"$and": [a, b]}
-
-
-def _extract_metadata_filter(query: str) -> Optional[Dict[str, Any]]:
-    q = query.strip()
-    parts: List[Dict[str, Any]] = []
-
-    if _GLASSES_FALSE.search(q):
-        parts.append({"eyewear_present": {"$eq": False}})
-    elif _GLASSES_TRUE.search(q):
-        parts.append({"eyewear_present": {"$eq": True}})
-
-    if _BEARD_FALSE.search(q):
-        parts.append({"beard_present": {"$eq": False}})
-    elif _BEARD_TRUE.search(q):
-        parts.append({"beard_present": {"$eq": True}})
-
-    if not parts:
-        return None
-    if len(parts) == 1:
-        return parts[0]
-    return {"$and": parts}
-
-
-# -----------------------------
 # Pinecone search (semantic) with optional metadata filter
 # -----------------------------
 def _pinecone_query(
@@ -650,16 +660,30 @@ def health() -> Dict[str, Any]:
     return {"ok": True}
 
 
+def _merge_filters(
+    a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    if not a and not b:
+        return None
+    if a and not b:
+        return a
+    if b and not a:
+        return b
+    return {"$and": [a, b]}
+
+
 @router.get("/search")
 def search_endpoint(
     request: Request,
     q: str = Query(..., min_length=1),
     k: int = Query(24, ge=1, le=32),
     filters: Optional[str] = Query(None, description="Optional JSON string Pinecone filter"),
+    planner: bool = Query(True, description="Use LLM query planner"),
 ) -> Dict[str, Any]:
     s = request.app.state.settings
     cache = request.app.state.cache
     ttl = int(s.cache_ttl_sec)
+    selected_provider, selected_model = _resolve_llm_choice(s, QueryBody(query=q))
 
     query = q.strip()
     start = time.time()
@@ -671,8 +695,15 @@ def search_endpoint(
         except Exception:
             explicit_filter = None
 
-    inferred_filter = _extract_metadata_filter(query)
-    flt = explicit_filter or inferred_filter
+    if planner:
+        planned = _run_query_planner(request, query, selected_provider, selected_model)
+        semantic_query = planned.get("semantic_query") or query
+        inferred_filter = planned.get("filter")
+    else:
+        semantic_query = query
+        inferred_filter = None
+
+    flt = _merge_filters(explicit_filter, inferred_filter)
 
     cache_key = (
         "search",
@@ -687,7 +718,7 @@ def search_endpoint(
         return cached
 
     t0 = time.time()
-    sources, retrieved_docs = _pinecone_query(request, query, top_k=int(k), flt=flt)
+    sources, retrieved_docs = _pinecone_query(request, semantic_query, top_k=int(k), flt=flt)
     t1 = time.time()
 
     if bool(s.rerank_in_search):
@@ -721,8 +752,15 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
 
     start = time.time()
 
-    inferred_filter = _extract_metadata_filter(query)
-    flt = _merge_filters(body.filters, inferred_filter) if body.filters else inferred_filter
+    if body.planner:
+        planned = _run_query_planner(request, query, selected_provider, selected_model)
+        semantic_query = planned.get("semantic_query") or query
+        inferred_filter = planned.get("filter")
+    else:
+        semantic_query = query
+        inferred_filter = None
+
+    flt = _merge_filters(body.filters, inferred_filter)
 
     # 1) retrieve + rerank (if sources are not passed in)
     if body.sources and len(body.sources) > 0:
@@ -732,11 +770,11 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         rerank_sec = 0.0
     else:
         t0 = time.time()
-        sources, retrieved_docs = _pinecone_query(request, query, top_k=k, flt=flt)
+        sources, retrieved_docs = _pinecone_query(request, semantic_query, top_k=k, flt=flt)
         t1 = time.time()
 
         rerank_start = time.time()
-        sources = _cohere_rerank_sources(request, query, sources)
+        sources = _cohere_rerank_sources(request, semantic_query, sources)
         rerank_end = time.time()
         rerank_sec = round(rerank_end - rerank_start, 2)
 
