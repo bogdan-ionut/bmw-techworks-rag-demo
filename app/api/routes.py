@@ -1038,9 +1038,9 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     tight_system = (
         ANSWER_SYSTEM_PROMPT
         + "\n\nHard constraints:\n"
-        + f"- Return at most {max(0, top_n)} top_matches.\n"
-        + "- Keep 'answer' <= 800 chars (concise).\n"
-        + "- Keep each 'why_match' <= 120 chars.\n"
+        + f"- Return exactly {max(0, top_n)} top_matches.\n"
+        + "- Keep 'answer' very short (max 300 chars, ~2 sentences).\n"
+        + "- 'why_match' MUST be a single line, max 10 words (e.g. 'Strong Python & AWS exp; lacks React.').\n"
         + "- Return JSON ONLY (no Markdown fences).\n"
     )
 
