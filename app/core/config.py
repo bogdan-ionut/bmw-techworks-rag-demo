@@ -159,7 +159,7 @@ def get_settings() -> Settings:
 
         search_top_k=int(pick("SEARCH_TOP_K", "24")),
         context_max_people=int(pick("CONTEXT_MAX_PEOPLE", "8")),
-        skip_llm_for_short=pick("SKIP_LLM_FOR_SHORT", "1") == "1",
+        skip_llm_for_short=pick("SKIP_LLM_FOR_SHORT", "0") == "1",
 
         temperature=float(pick("TEMPERATURE", "0.1")),
         max_tokens=int(pick("MAX_TOKENS", "1200")),
