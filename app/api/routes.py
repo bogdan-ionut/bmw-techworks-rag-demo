@@ -721,8 +721,12 @@ def search_endpoint(
     sources, retrieved_docs = _pinecone_query(request, semantic_query, top_k=int(k), flt=flt)
     t1 = time.time()
 
+    rerank_sec = 0.0
     if bool(s.rerank_in_search):
+        rerank_start = time.time()
         sources = _cohere_rerank_sources(request, query, sources)
+        rerank_end = time.time()
+        rerank_sec = round(rerank_end - rerank_start, 2)
 
     result = {
         "sources": sources,
@@ -732,6 +736,7 @@ def search_endpoint(
         "filters_applied": flt,
         "latency_sec": round(time.time() - start, 2),
         "retrieval_sec": round(t1 - t0, 2),
+        "rerank_sec": rerank_sec,
     }
     _cache_set(cache, cache_key, result)
     return result
@@ -1033,11 +1038,14 @@ def meta(request: Request) -> Dict[str, Any]:
         "gemini_model": s.gemini_model,
         "available_llms": {
             "OPENAI": [
-                "gpt-5-mini-2025-08-07",
-                "gpt-5-nano-2025-08-07",
-                "gpt-4o-mini-2024-07-18",
+                {"name": "GPT 5 Mini", "value": "gpt-5-mini-2025-08-07"},
+                {"name": "GPT 5 Nano", "value": "gpt-5-nano-2025-08-07"},
+                {"name": "GPT 4o Mini", "value": "gpt-4o-mini-2024-07-18"},
             ],
-            "GEMINI": ["gemini-3-flash-preview", "gemini-2.5-flash"],
+            "GEMINI": [
+                {"name": "Gemini 3 Flash", "value": "gemini-3-flash-preview"},
+                {"name": "Gemini 2.5 Flash", "value": "gemini-2.5-flash"},
+            ],
         },
         "cohere_rerank_top_n": s.cohere_rerank_top_n,
         "cache_ttl_sec": s.cache_ttl_sec,
