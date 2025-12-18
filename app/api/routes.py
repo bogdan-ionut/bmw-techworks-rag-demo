@@ -1103,13 +1103,27 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         # Inject reasoning back into sources for the UI
         top_matches = answer_obj.get("top_matches") or []
         reasoning_map = {m.get("id"): m.get("why_match") for m in top_matches if m.get("id")}
-        # fallback to profile_url matching if id is missing
-        reasoning_map_url = {m.get("profile_url"): m.get("why_match") for m in top_matches if m.get("profile_url")}
 
-        for s in sources:
-            why = reasoning_map.get(s.get("id")) or reasoning_map_url.get(s.get("profile_url"))
-            if why:
-                s["reasoning"] = why
+        # Hydrate top_matches with full metadata from sources
+        # because the LLM was instructed not to return full_name/profile_url to save tokens
+        source_map = {s.get("id"): s for s in sources if s.get("id")}
+
+        for m in top_matches:
+            mid = m.get("id")
+            if mid and mid in source_map:
+                s = source_map[mid]
+                # Restore key fields if missing
+                if not m.get("full_name"):
+                    m["full_name"] = s.get("full_name") or ""
+                if not m.get("profile_url"):
+                    m["profile_url"] = s.get("profile_url") or ""
+                if not m.get("image_url"):
+                    # The source has profile_image_url populated from profile_image_s3_url in _pinecone_query
+                    m["image_url"] = s.get("profile_image_url") or None
+
+                # Also inject reasoning back into the source object itself (redundant but safe)
+                if m.get("why_match"):
+                    s["reasoning"] = m.get("why_match")
 
     except Exception as e:
         logger.exception(

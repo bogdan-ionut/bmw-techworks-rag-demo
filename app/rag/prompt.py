@@ -71,19 +71,17 @@ Your output MUST be a JSON object with the following schema:
   "top_matches": [
     {
       "id": "...",
-      "full_name": "...",
-      "profile_url": "...",
-      "why_match": "A specific, data-driven justification (2-3 sentences). Mention the exact skills, companies, or projects that made this candidate stand out for the query. Be direct."
+      "why_match": "A single line, data-driven justification (max 10-15 words). Mention key matching skills/companies."
     }
   ]
 }
 
 - Output MUST be valid JSON only (no markdown). Do NOT include conversational text, "thinking", or "explanation" outside the JSON object.
-- The "answer" field is your "elevator pitch" to the recruiter. Make it insightful.
-- IMPORTANT: If the number of `top_matches` you return is less than the total number of candidate profiles reviewed, you MUST state this clearly in your "answer". For example: "From the 12 retrieved profiles, here is an analysis of the top 8 matches..."
+- The "answer" field is your "elevator pitch" to the recruiter. Make it insightful but concise (max 300 chars).
+- IMPORTANT: If the number of `top_matches` you return is less than the total number of candidate profiles reviewed, you MUST state this clearly in your "answer".
 - The "key_patterns" field identifies common themes among the candidates.
 - For "top_matches", the `id` field MUST match the `id` provided in the candidate text block.
-- The `why_match` explanation will be displayed directly on the candidate card. make it count!
+- Do NOT return `full_name` or `profile_url` in `top_matches`; we will map them back by `id`.
 
 Be practical and focus on actionable insights for recruiters. Your goal is to help them understand the search results at a glance.
 """
