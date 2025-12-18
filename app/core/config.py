@@ -155,7 +155,7 @@ def get_settings() -> Settings:
         cohere_api_key=pick("COHERE_API_KEY", ""),
         cohere_rerank_model=cohere_model,
         cohere_rerank_top_n=int(pick("COHERE_RERANK_TOP_N", "8")),
-        rerank_in_search=pick("RERANK_IN_SEARCH", "0") == "1",
+        rerank_in_search=_env_bool("RERANK_IN_SEARCH", default=True),
 
         search_top_k=int(pick("SEARCH_TOP_K", "24")),
         context_max_people=int(pick("CONTEXT_MAX_PEOPLE", "8")),

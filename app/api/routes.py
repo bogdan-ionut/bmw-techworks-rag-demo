@@ -644,6 +644,13 @@ def _cohere_rerank_sources(request: Request, query: str, sources: List[Dict[str,
     reranker = request.app.state.cohere_reranker
     if not reranker or not sources:
         return sources
+
+    logger.info(
+        "Cohere reranker is active. Reranking %d sources for query: '%s'",
+        len(sources),
+        query,
+    )
+
     docs = [Document(page_content=_source_to_text(s), metadata=s) for s in sources]
     reranked_docs = reranker.compress_documents(documents=docs, query=query)  # already top_n
     top_sources = [d.metadata for d in reranked_docs]
@@ -1038,9 +1045,8 @@ def meta(request: Request) -> Dict[str, Any]:
         "gemini_model": s.gemini_model,
         "available_llms": {
             "OPENAI": [
-                {"name": "GPT 5 Mini", "value": "gpt-5-mini-2025-08-07"},
-                {"name": "GPT 5 Nano", "value": "gpt-5-nano-2025-08-07"},
-                {"name": "GPT 4o Mini", "value": "gpt-4o-mini-2024-07-18"},
+                {"name": "GPT-4 Turbo", "value": "gpt-4-turbo-2024-04-09"},
+                {"name": "GPT-4o mini", "value": "gpt-4o-mini-2024-07-18"},
             ],
             "GEMINI": [
                 {"name": "Gemini 3 Flash", "value": "gemini-3-flash-preview"},
