@@ -12,7 +12,6 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
@@ -26,6 +25,7 @@ from app.rag.prompt import (
     PLANNER_SYSTEM_PROMPT,
     format_candidates_for_prompt,
 )
+from app.rag.rerank import rerank_candidates
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -640,23 +640,63 @@ def _pinecone_query(
 # -----------------------------
 # Cohere rerank (top_k -> top_n), reorder cards
 # -----------------------------
-def _cohere_rerank_sources(request: Request, query: str, sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    reranker = request.app.state.cohere_reranker
-    if not reranker or not sources:
+def _cohere_rerank_sources(
+    request: Request,
+    query: str,
+    sources: List[Dict[str, Any]],
+    dynamic_top_n: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    # Use the dynamic rerank helper
+    settings = request.app.state.settings
+    if not settings.cohere_api_key:
         return sources
 
-    logger.info(
-        "Cohere reranker is active. Reranking %d sources for query: '%s'",
-        len(sources),
-        query,
+    # Check if global instance check passed
+    # but use a fresh instance/call for dynamic top_n
+
+    # Defaults
+    top_n = dynamic_top_n if dynamic_top_n is not None else settings.cohere_rerank_top_n
+
+    # Prepare candidates in format expected by rerank_candidates (requires 'text' key)
+    # But wait, rerank_candidates expects `text` field in dict.
+    # _source_to_text(s) creates the text.
+    candidates = []
+    for s in sources:
+        # We need to preserve the original source dict, but rerank_candidates returns metadata.
+        # rerank_candidates implementation:
+        # docs = [Document(page_content=str(c.get("text") or ""), metadata=c) ...]
+        # out = [d.metadata for d in reranked_docs]
+        # So we can pass the source as metadata.
+        # But rerank_candidates looks for 'text' in the candidate dict to build page_content.
+        c = dict(s)
+        c["text"] = _source_to_text(s)
+        candidates.append(c)
+
+    reranked = rerank_candidates(
+        query=query,
+        candidates=candidates,
+        cohere_api_key=settings.cohere_api_key,
+        model=settings.cohere_rerank_model,
+        top_n=top_n,
     )
 
-    docs = [Document(page_content=_source_to_text(s), metadata=s) for s in sources]
-    reranked_docs = reranker.compress_documents(documents=docs, query=query)  # already top_n
-    top_sources = [d.metadata for d in reranked_docs]
-    top_ids = {_source_id(s) for s in top_sources}
+    # Restore the "append rest" logic to avoid truncation if reranking subset
+    # This was present in the original implementation to ensure we still return k items
+    # even if we only reranked top N.
+
+    # reranked contains the top N reranked items.
+    top_ids = {_source_id(s) for s in reranked}
+
+    # Identify items that were not in the top N reranked list
+    # but were in the original sources
     rest = [s for s in sources if _source_id(s) and _source_id(s) not in top_ids]
-    return top_sources + rest
+
+    # Remove 'text' field if it was added just for reranking in the top list
+    for r in reranked:
+        if "text" in r and "text" not in sources[0]: # heuristic check
+            r.pop("text", None)
+
+    return reranked + rest
 
 
 # -----------------------------
@@ -731,7 +771,18 @@ def search_endpoint(
     rerank_sec = 0.0
     if bool(s.rerank_in_search):
         rerank_start = time.time()
-        sources = _cohere_rerank_sources(request, query, sources)
+        # Dynamic Rerank Logic:
+        # If retrieved count is small, adapt top_n.
+        # k is the requested retrieval count.
+        # sources is the actual retrieved count.
+
+        # We can pass k, or just rely on len(sources).
+        # rerank_candidates handles min(len(sources), top_n) internally.
+        # But we can also cap it here by configuration if needed.
+
+        # Just pass defaults, let rerank_candidates handle logic.
+        sources = _cohere_rerank_sources(request, query, sources, dynamic_top_n=s.cohere_rerank_top_n)
+
         rerank_end = time.time()
         rerank_sec = round(rerank_end - rerank_start, 2)
 
@@ -786,7 +837,8 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         t1 = time.time()
 
         rerank_start = time.time()
-        sources = _cohere_rerank_sources(request, semantic_query, sources)
+        # Use dynamic rerank
+        sources = _cohere_rerank_sources(request, semantic_query, sources, dynamic_top_n=s.cohere_rerank_top_n)
         rerank_end = time.time()
         rerank_sec = round(rerank_end - rerank_start, 2)
 
