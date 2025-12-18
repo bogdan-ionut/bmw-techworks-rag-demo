@@ -59,14 +59,67 @@ def hard_filters_from_text(q: str) -> Tuple[Optional[Dict[str, Any]], str]:
 
 def safe_json_loads(s: str) -> Dict[str, Any]:
     s = (s or "").strip()
+
+    # 1. Try direct parse
     try:
         return json.loads(s)
     except Exception:
         pass
+
+    # 2. Try to find markdown code blocks
+    code_blocks = re.findall(r"```(?:json)?\s*(.*?)```", s, re.DOTALL)
+    if code_blocks:
+        for block in reversed(code_blocks):
+            try:
+                return json.loads(block.strip())
+            except Exception:
+                pass
+
+    # 3. Find all top-level JSON objects using raw_decode
+    decoder = json.JSONDecoder()
+    pos = 0
+    candidates = []
+    while True:
+        match = s.find('{', pos)
+        if match == -1:
+            break
+        try:
+            result, index = decoder.raw_decode(s[match:])
+            candidates.append(result)
+            pos = match + index
+        except ValueError:
+            pos = match + 1
+
+    if candidates:
+        dicts = [c for c in candidates if isinstance(c, dict)]
+        if dicts:
+            # Check for keys likely in our app
+            expected_keys = {"answer", "semantic_query", "filter", "key_patterns", "top_matches", "top_k"}
+            for c in reversed(dicts):
+                if any(k in c for k in expected_keys):
+                    return c
+            # Fallback to last dict
+            return dicts[-1]
+
+    # 4. Last resort: simple start/end
     start = s.find("{")
     end = s.rfind("}")
     if start != -1 and end != -1 and end > start:
-        return json.loads(s[start : end + 1])
+        try:
+            return json.loads(s[start : end + 1])
+        except Exception:
+            pass
+
+    # 5. Try cleaning trailing commas
+    s_cleaned = re.sub(r",\s*([}\]])", r"\1", s)
+    if s_cleaned != s:
+        try:
+            return safe_json_loads(s_cleaned)
+        except RecursionError:
+            pass
+        except ValueError:
+            pass
+
     raise ValueError("Could not parse JSON from model output.")
 
 

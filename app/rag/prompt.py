@@ -23,7 +23,7 @@ Your job:
 2) Produce a clean semantic_query for vector search.
 
 Rules:
-- Output MUST be valid JSON only (no markdown).
+- Output MUST be valid JSON only (no markdown). Do NOT include conversational text, "thinking", or "explanation" outside the JSON object.
 - Use only these filter fields when possible:
   eyewear_present (bool)
   beard_present (bool)
@@ -78,6 +78,7 @@ Your output MUST be a JSON object with the following schema:
   ]
 }
 
+- Output MUST be valid JSON only (no markdown). Do NOT include conversational text, "thinking", or "explanation" outside the JSON object.
 - The "answer" field is your "elevator pitch" to the recruiter. Make it insightful.
 - IMPORTANT: If the number of `top_matches` you return is less than the total number of candidate profiles reviewed, you MUST state this clearly in your "answer". For example: "From the 12 retrieved profiles, here is an analysis of the top 8 matches..."
 - The "key_patterns" field identifies common themes among the candidates.
