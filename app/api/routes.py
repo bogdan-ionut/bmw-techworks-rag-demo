@@ -87,7 +87,7 @@ def _extract_llm_usage(resp: Any) -> Tuple[int, int, int, Optional[str]]:
     completion_tokens = usage.get("completion_tokens") or usage.get("output_tokens") or 0
     total_tokens = usage.get("total_tokens") or 0
 
-    # Gemini 2.5/3 style
+    # Gemini 2.5/3 style (fallback/specific keys)
     prompt_tokens = usage.get("prompt_token_count") or prompt_tokens
     completion_tokens = usage.get("candidates_token_count") or completion_tokens
     total_tokens = usage.get("total_token_count") or total_tokens
@@ -102,6 +102,13 @@ def _extract_llm_usage(resp: Any) -> Tuple[int, int, int, Optional[str]]:
         or usage.get("model")
         or usage.get("model_name")
     )
+
+    # If usage is empty, check if we can get it from another place or log warning
+    if total_tokens == 0:
+         logger.warning(
+             "LLM usage extraction failed (0 tokens). Check provider response format.",
+             extra={"response_keys": list(vars(resp).keys()) if hasattr(resp, "__dict__") else [], "meta_keys": list(meta.keys())}
+         )
 
     return prompt_tokens, completion_tokens, total_tokens, model_name
 
@@ -612,12 +619,26 @@ def _pinecone_query(
     query: str,
     top_k: int,
     flt: Optional[Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], int]:
+) -> Tuple[List[Dict[str, Any]], int, float]:
+    """
+    Returns: (sources, matches_count, embedding_time_sec)
+    """
     embeddings = request.app.state.embeddings
     index = request.app.state.pinecone_index
     namespace = request.app.state.settings.pinecone_namespace
 
+    t_embed_start = time.time()
     vec = embeddings.embed_query(query)
+    t_embed_end = time.time()
+
+    # Log if embedding is slow (likely cause of "exploded" pinecone time)
+    embed_sec = t_embed_end - t_embed_start
+    if embed_sec > 1.0:
+        logger.warning(
+            "Slow embedding generation",
+            extra={"query": query, "embedding_sec": embed_sec, "model": getattr(embeddings, "model", "unknown")}
+        )
+
     res = index.query(
         vector=vec,
         top_k=top_k,
@@ -682,7 +703,7 @@ def _pinecone_query(
             }
         )
 
-    return sources, len(matches)
+    return sources, len(matches), embed_sec
 
 
 # -----------------------------
@@ -813,7 +834,7 @@ def search_endpoint(
         return cached
 
     t0 = time.time()
-    sources, retrieved_docs = _pinecone_query(request, semantic_query, top_k=int(k), flt=flt)
+    sources, retrieved_docs, embed_sec = _pinecone_query(request, semantic_query, top_k=int(k), flt=flt)
     t1 = time.time()
 
     rerank_sec = 0.0
@@ -873,6 +894,8 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
 
     flt = _merge_filters(body.filters, inferred_filter)
 
+    embed_sec = 0.0
+
     # 1) retrieve + rerank (if sources are not passed in)
     if body.sources and len(body.sources) > 0:
         sources = body.sources
@@ -881,7 +904,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         rerank_sec = 0.0
     else:
         t0 = time.time()
-        sources, retrieved_docs = _pinecone_query(request, semantic_query, top_k=k, flt=flt)
+        sources, retrieved_docs, embed_sec = _pinecone_query(request, semantic_query, top_k=k, flt=flt)
         t1 = time.time()
 
         rerank_start = time.time()
@@ -1011,12 +1034,13 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         except Exception:
             pass
 
+    # REDUCE OUTPUT TOKENS TO IMPROVE LATENCY
     tight_system = (
         ANSWER_SYSTEM_PROMPT
         + "\n\nHard constraints:\n"
         + f"- Return at most {max(0, top_n)} top_matches.\n"
-        + "- Keep 'answer' <= 1200 chars.\n"
-        + "- Keep each 'why_match' <= 180 chars.\n"
+        + "- Keep 'answer' <= 800 chars (concise).\n"
+        + "- Keep each 'why_match' <= 120 chars.\n"
         + "- Return JSON ONLY (no Markdown fences).\n"
     )
 
@@ -1135,6 +1159,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         "latency_sec": round(t3 - start, 2),
         "retrieval_sec": round(t1 - t0, 2),
         "pinecone_sec": round(t1 - t0, 2),
+        "embedding_sec": round(embed_sec, 2),
         "rerank_sec": rerank_sec,
         "llm_sec": round(t3 - t2, 2),
         "llm_prompt_tokens": prompt_tokens,
