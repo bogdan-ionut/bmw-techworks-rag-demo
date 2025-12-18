@@ -972,7 +972,7 @@
           <div class="control-group">
             <div class="control-item">
               <label for="retrievalK">Retrieve:</label>
-              <input id="retrievalK" type="number" min="1" max="32" step="1" value="24" />
+              <input id="retrievalK" type="number" min="1" max="32" step="1" value="9" />
             </div>
             <div class="control-item llm-selector">
               <label for="llmModel">LLM Model</label>
@@ -1160,7 +1160,7 @@
       return { tier: 'potential', label: 'Potential Match', icon: '○' };
     }
 
-    function sanitizeRetrievalValue(defaultValue = 24) {
+    function sanitizeRetrievalValue(defaultValue = 9) {
       const trimmedValue = retrievalK.value.trim();
       if (trimmedValue === '') {
         retrievalK.value = defaultValue;
@@ -1435,18 +1435,26 @@
 
     async function handleSearch() {
         let query = searchInput.value.trim();
-        if (!query) return;
+
+        // Allow search if we have text input OR any selected filters
+        if (!query && selectedMetadata.size === 0 && selectedSmartFilters.size === 0) {
+            return;
+        }
 
         // Append metadata to query
         if (selectedMetadata.size > 0) {
             const meta = Array.from(selectedMetadata).join(' ');
-            query += ` ${meta}`;
+            // If query is not empty, add a space. If empty, just set it to meta.
+            query = query ? `${query} ${meta}` : meta;
         }
 
         // Append visual filters to query
         if (selectedSmartFilters.size > 0) {
             const filters = Array.from(selectedSmartFilters).join(', ');
-            query += ` with ${filters}`;
+            // If query (including metadata) is not empty, append " with ..."
+            // If query is still empty, append "with ..." or just the filters?
+            // "with Glasses" is semantically clearer for the embedding model than just "Glasses" (which might match the word Glasses)
+            query = query ? `${query} with ${filters}` : `with ${filters}`;
         }
 
         if (abortController) abortController.abort();
