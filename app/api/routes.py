@@ -410,6 +410,49 @@ def _looks_like_short_search(query: str) -> bool:
     return len(q) <= 22 and "?" not in q
 
 
+def _source_to_llm_text(s: Dict[str, Any]) -> str:
+    """
+    Creates a concise, structured summary for LLM analysis to save tokens.
+    Excludes the heavy embedding_text.
+    """
+    parts = []
+
+    # Role & Company
+    role = s.get('job_title') or ""
+    company = s.get('company') or ""
+    if role or company:
+        parts.append(f"Current: {role} at {company}".strip())
+
+    # Previous
+    prev_role = s.get('job_title_2') or ""
+    if prev_role:
+        parts.append(f"Previous: {prev_role}")
+
+    # Skills (critical)
+    skills = s.get('tech_tokens') or []
+    if skills:
+        # Limit to top 25 skills to save tokens but keep context
+        skill_str = ", ".join(str(x) for x in skills[:25])
+        parts.append(f"Skills: {skill_str}")
+
+    # Education
+    school = s.get('school') or ""
+    degree = s.get('school_degree') or ""
+    if school or degree:
+        parts.append(f"Education: {degree} from {school}".strip())
+
+    # Location & Meta
+    loc = s.get('location') or ""
+    if loc:
+        parts.append(f"Loc: {loc}")
+
+    exp = s.get('minimum_estimated_years_of_exp')
+    if exp:
+        parts.append(f"Exp: {exp} yrs")
+
+    return "\n".join(parts)
+
+
 def _source_to_text(s: Dict[str, Any]) -> str:
     # Prefer embedding_text if present (best semantic)
     emb = (s.get("embedding_text") or "").strip()
@@ -441,6 +484,7 @@ def _build_top_matches_from_sources(
     for s0 in (sources or [])[: max(0, top_n)]:
         out.append(
             {
+                "id": s0.get("id"),
                 "full_name": s0.get("full_name") or "",
                 "profile_url": s0.get("profile_url") or "",
                 "image_url": s0.get("profile_image_url") or None,
@@ -629,6 +673,10 @@ def _pinecone_query(
                 # filters
                 "eyewear_present": md.get("eyewear_present"),
                 "beard_present": md.get("beard_present"),
+                # new fields for LLM
+                "company": md.get("company"),
+                "tech_tokens": md.get("tech_tokens"),
+                "minimum_estimated_years_of_exp": md.get("minimum_estimated_years_of_exp"),
                 # best context (already built in ingestion)
                 "embedding_text": md.get("embedding_text") or "",
             }
@@ -853,7 +901,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
             {
                 "id": s0.get("id"),
                 "score": s0.get("score"),
-                "text": _source_to_text(s0),
+                "text": _source_to_llm_text(s0),
                 "metadata": {
                     "full_name": s0.get("full_name"),
                     "profile_url": s0.get("profile_url"),
@@ -1027,6 +1075,18 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         parsed = _safe_json_loads(raw)
         answer_obj = _coerce_answer_obj(query, flt, sources, parsed, top_n=top_n)
         logger.info("LLM parsing successful", extra={"query": query})
+
+        # Inject reasoning back into sources for the UI
+        top_matches = answer_obj.get("top_matches") or []
+        reasoning_map = {m.get("id"): m.get("why_match") for m in top_matches if m.get("id")}
+        # fallback to profile_url matching if id is missing
+        reasoning_map_url = {m.get("profile_url"): m.get("why_match") for m in top_matches if m.get("profile_url")}
+
+        for s in sources:
+            why = reasoning_map.get(s.get("id")) or reasoning_map_url.get(s.get("profile_url"))
+            if why:
+                s["reasoning"] = why
+
     except Exception as e:
         logger.exception(
             "LLM failed; attempting to salvage unstructured output",
