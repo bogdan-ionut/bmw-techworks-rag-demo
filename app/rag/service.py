@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import copy
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -134,6 +135,47 @@ def merge_filters(a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> O
     return {"$and": [a, b]}
 
 
+def expand_name_filter(f: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Relax 'full_name_normalized' strict equality to allow case variations.
+    This helps if the DB contains 'Ionut Buraga' but the planner output 'ionut buraga'.
+    """
+    if not f:
+        return f
+
+    new_f = copy.deepcopy(f)
+
+    def _visit(node: Any) -> Any:
+        if not isinstance(node, dict):
+            return node
+
+        # If we see full_name_normalized: {$eq: "..."}
+        if "full_name_normalized" in node:
+            cond = node["full_name_normalized"]
+            if isinstance(cond, dict) and "$eq" in cond:
+                val = cond["$eq"]
+                if isinstance(val, str) and val.strip():
+                    base = val.strip()
+                    # Generate common casing variations
+                    variations = list({
+                        base.lower(),
+                        base.title(),
+                        base.upper(),
+                        base
+                    })
+                    # Replace strict match with set inclusion
+                    node["full_name_normalized"] = {"$in": variations}
+
+        # Recurse logic
+        for k, v in node.items():
+            if k in ("$and", "$or") and isinstance(v, list):
+                node[k] = [_visit(item) for item in v]
+
+        return node
+
+    return _visit(new_f)
+
+
 def plan_query_with_llm(user_query: str) -> Dict[str, Any]:
     s = get_settings()
 
@@ -212,6 +254,7 @@ def rag_search(user_query: str, use_planner: bool = True) -> Dict[str, Any]:
         rerank_top_n = s.cohere_rerank_top_n
 
     merged_filter = sanitize_filter(merge_filters(hard_filter, plan_filter))
+    merged_filter = expand_name_filter(merged_filter)
 
     docs = retrieve_profiles(
         query=semantic_query,
