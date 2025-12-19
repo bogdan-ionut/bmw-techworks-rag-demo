@@ -385,6 +385,41 @@ def _run_query_planner(
 # -----------------------------
 # Utils
 # -----------------------------
+def _normalize_filter_values(flt: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Recursively force specific filter values (like name_tokens) to lowercase
+    to match the ingestion normalization logic.
+    """
+    if not flt or not isinstance(flt, dict):
+        return flt
+
+    # 1. Normalizează name_tokens (pentru că ingestion-ul le face lowercase)
+    if "name_tokens" in flt:
+        cond = flt["name_tokens"]
+        if isinstance(cond, dict):
+            # Cazul {$in: ["Ionut"]} -> {$in: ["ionut"]}
+            if "$in" in cond and isinstance(cond["$in"], list):
+                cond["$in"] = [str(x).lower() for x in cond["$in"]]
+            # Cazul {$eq: "Ionut"} -> {$eq: "ionut"}
+            if "$eq" in cond and isinstance(cond["$eq"], str):
+                cond["$eq"] = cond["$eq"].lower()
+
+    # 2. Normalizează location_normalized
+    if "location_normalized" in flt:
+        cond = flt["location_normalized"]
+        if isinstance(cond, dict):
+            if "$eq" in cond and isinstance(cond["$eq"], str):
+                cond["$eq"] = cond["$eq"].lower()
+
+    # 3. Mergi recursiv pentru structuri complexe ($and, $or)
+    for k, v in flt.items():
+        if k in ("$and", "$or") and isinstance(v, list):
+            for item in v:
+                _normalize_filter_values(item)
+
+    return flt
+
+
 def _normalize_linkedin(url: Optional[str]) -> str:
     if not url:
         return ""
@@ -815,7 +850,7 @@ def search_endpoint(
     if planner:
         planned = _run_query_planner(request, query, selected_provider, selected_model)
         semantic_query = planned.get("semantic_query") or query
-        inferred_filter = sanitize_filter(planned.get("filter"))
+        inferred_filter = _normalize_filter_values(sanitize_filter(planned.get("filter")))
     else:
         semantic_query = query
         inferred_filter = None
@@ -888,7 +923,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     if body.planner:
         planned = _run_query_planner(request, query, selected_provider, selected_model)
         semantic_query = planned.get("semantic_query") or query
-        inferred_filter = sanitize_filter(planned.get("filter"))
+        inferred_filter = _normalize_filter_values(sanitize_filter(planned.get("filter")))
     else:
         semantic_query = query
         inferred_filter = None
