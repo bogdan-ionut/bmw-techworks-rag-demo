@@ -277,11 +277,14 @@ def build_metadata(rec: Dict[str, Any], embedding_text: str) -> Dict[str, Any]:
         facial_hair, negative_markers=("no visible", "none", "clean-shaven", "clean shaven")
     )
 
+    full_name_norm = _normalize_name(rec.get("full_name_normalized") or rec.get("full_name"))
+
     md: Dict[str, Any] = {
         # identity / UI
         "vmid": _norm_str(rec.get("vmid")),
         "full_name": _norm_str(rec.get("full_name")),
-        "full_name_normalized": _normalize_name(rec.get("full_name_normalized") or rec.get("full_name")),
+        "full_name_normalized": full_name_norm,
+        "name_tokens": full_name_norm.split() if full_name_norm else [],
         "profile_url": _norm_str(rec.get("profile_url")),
         "profile_image_s3_url": _norm_str(rec.get("profile_image_s3_url")),
         "profile_image_s3_key": _norm_str(rec.get("profile_image_s3_key")),
