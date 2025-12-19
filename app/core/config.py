@@ -162,7 +162,7 @@ def get_settings() -> Settings:
         skip_llm_for_short=pick("SKIP_LLM_FOR_SHORT", "0") == "1",
 
         temperature=float(pick("TEMPERATURE", "0.1")),
-        max_tokens=int(pick("MAX_TOKENS", "1500")),
+        max_tokens=int(pick("MAX_TOKENS", "5000")),
 
         cache_ttl_sec=int(pick("CACHE_TTL_SEC", "600")),
 
