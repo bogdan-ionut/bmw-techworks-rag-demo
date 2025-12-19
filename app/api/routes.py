@@ -918,8 +918,10 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     top_n = max(0, min(top_n_cfg, len(sources or [])))
 
     # Build candidates for the answer prompt
+    # OPTIMIZATION: Only send the top_n most relevant profiles to the LLM to save tokens.
+    # The 'sources' list is already reranked, so taking the first 'top_n' gives the best matches.
     candidates: List[Dict[str, Any]] = []
-    for s0 in sources:
+    for s0 in sources[:top_n]:
         candidates.append(
             {
                 "id": s0.get("id"),
