@@ -8,7 +8,6 @@ from typing import Any, Dict, List
 ALLOWED_FILTER_FIELDS = {
     "eyewear_present",
     "beard_present",
-    "job_title",
     "minimum_estimated_years_of_exp",
     "tech_tokens",
     "image_search_tags",
@@ -38,11 +37,13 @@ Rules:
   school (string)
   school_degree (string)
   job_title (string)
+  full_name_normalized (string, lowercase)
 
 - For visual attributes (e.g., "eyeglasses", "smiling", "beard"), use the boolean `eyewear_present`, `beard_present`, or `image_search_tags` filters.
 - **IMPORTANT**: Remove visual descriptors from the `semantic_query` to avoid biasing the vector search. The `semantic_query` should only contain professional criteria (skills, roles, experience).
 - **Location**: If the user explicitly asks for a city, use `location_normalized` (e.g. "Cluj", "Munich" -> "cluj-napoca", "munich").
 - **Education**: If the user asks for "Bachelor" or "Master" or specific university, use `school` or `school_degree`.
+- **Name**: If the user asks for a specific person by name, use `full_name_normalized` (e.g. "Ionuț Buraga" -> "ionut buraga").
 - If a user asks for "python engineers with eyeglasses in Cluj", the `semantic_query` should be "python engineers" and the filter should be `{"$and": [{"eyewear_present": {"$eq": true}}, {"location_normalized": {"$eq": "cluj-napoca"}}]}`.
 - If you are unsure, omit the filter (do not guess).
 
