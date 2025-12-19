@@ -24,6 +24,7 @@ from app.rag.prompt import (
     ANSWER_SYSTEM_PROMPT,
     PLANNER_SYSTEM_PROMPT,
     format_candidates_for_prompt,
+    sanitize_filter,
 )
 from app.rag.rerank import rerank_candidates
 
@@ -814,7 +815,7 @@ def search_endpoint(
     if planner:
         planned = _run_query_planner(request, query, selected_provider, selected_model)
         semantic_query = planned.get("semantic_query") or query
-        inferred_filter = planned.get("filter")
+        inferred_filter = sanitize_filter(planned.get("filter"))
     else:
         semantic_query = query
         inferred_filter = None
@@ -887,7 +888,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     if body.planner:
         planned = _run_query_planner(request, query, selected_provider, selected_model)
         semantic_query = planned.get("semantic_query") or query
-        inferred_filter = planned.get("filter")
+        inferred_filter = sanitize_filter(planned.get("filter"))
     else:
         semantic_query = query
         inferred_filter = None

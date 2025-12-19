@@ -17,6 +17,7 @@ from app.rag.prompt import (
     ANSWER_SYSTEM_PROMPT,
     format_candidates_for_prompt,
     ALLOWED_FILTER_FIELDS,
+    sanitize_filter,
 )
 
 
@@ -133,37 +134,6 @@ def merge_filters(a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> O
     return {"$and": [a, b]}
 
 
-def _sanitize_filter(flt: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """
-    Prevent Pinecone errors if planner outputs unknown metadata fields.
-    Keeps only ALLOWED_FILTER_FIELDS (+ logical operators).
-    """
-    if not flt or not isinstance(flt, dict):
-        return flt
-
-    def keep(node: Any) -> Any:
-        if isinstance(node, dict):
-            out: Dict[str, Any] = {}
-            for k, v in node.items():
-                if k in ("$and", "$or"):
-                    if isinstance(v, list):
-                        vv = [keep(x) for x in v]
-                        vv = [x for x in vv if x not in (None, {}, [])]
-                        if vv:
-                            out[k] = vv
-                    continue
-                if k.startswith("$"):
-                    out[k] = v
-                    continue
-                if k in ALLOWED_FILTER_FIELDS:
-                    out[k] = v
-            return out
-        return node
-
-    cleaned = keep(flt)
-    return cleaned if cleaned else None
-
-
 def plan_query_with_llm(user_query: str) -> Dict[str, Any]:
     s = get_settings()
 
@@ -187,7 +157,7 @@ def plan_query_with_llm(user_query: str) -> Dict[str, Any]:
     plan.setdefault("semantic_query", user_query)
     plan.setdefault("filter", None)
 
-    plan["filter"] = _sanitize_filter(plan.get("filter"))
+    plan["filter"] = sanitize_filter(plan.get("filter"))
     return plan
 
 
@@ -223,19 +193,25 @@ def generate_answer(user_query: str, candidates: List[Dict[str, Any]], filters_a
         }
 
 
-def rag_search(user_query: str) -> Dict[str, Any]:
+def rag_search(user_query: str, use_planner: bool = True) -> Dict[str, Any]:
     s = get_settings()
 
     hard_filter, cleaned_semantic = hard_filters_from_text(user_query)
-    plan = plan_query_with_llm(user_query)
 
-    plan_filter = plan.get("filter")
-    semantic_query = (plan.get("semantic_query") or cleaned_semantic or user_query).strip()
+    if use_planner:
+        plan = plan_query_with_llm(user_query)
+        plan_filter = plan.get("filter")
+        semantic_query = (plan.get("semantic_query") or cleaned_semantic or user_query).strip()
+        top_k = int(plan.get("top_k", 30))
+        rerank_top_n = int(plan.get("rerank_top_n", s.cohere_rerank_top_n))
+    else:
+        # Planner disabled: use raw query + basic regex filters
+        plan_filter = None
+        semantic_query = cleaned_semantic or user_query
+        top_k = 30
+        rerank_top_n = s.cohere_rerank_top_n
 
-    merged_filter = _sanitize_filter(merge_filters(hard_filter, plan_filter))
-
-    top_k = int(plan.get("top_k", 30))
-    rerank_top_n = int(plan.get("rerank_top_n", s.cohere_rerank_top_n))
+    merged_filter = sanitize_filter(merge_filters(hard_filter, plan_filter))
 
     docs = retrieve_profiles(
         query=semantic_query,
@@ -283,9 +259,10 @@ def rag_search(user_query: str) -> Dict[str, Any]:
 def _cli() -> None:
     parser = argparse.ArgumentParser(description="End-to-end RAG search (planner + filter + retrieve + rerank + answer)")
     parser.add_argument("query", type=str)
+    parser.add_argument("--no-planner", action="store_true", help="Disable LLM query planner")
     args = parser.parse_args()
 
-    out = rag_search(args.query)
+    out = rag_search(args.query, use_planner=not args.no_planner)
     print(json.dumps(out["answer"], ensure_ascii=False, indent=2))
 
 
