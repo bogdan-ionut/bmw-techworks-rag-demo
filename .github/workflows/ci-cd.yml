@@ -16,7 +16,7 @@ env:
   CONTAINER_NAME: app
 
 jobs:
-  # Job 1: Rulează teste (Opțional, dar recomandat)
+  # Job 1: Run tests
   tests:
     runs-on: ubuntu-latest
     steps:
@@ -34,8 +34,6 @@ jobs:
           pip install -r requirements.txt
           pip install pytest httpx
 
-      # Dacă nu ai teste scrise încă, pasul ăsta va trece rapid sau va da skip
-      # Poți să-l comentezi dacă vrei să sari peste teste momentan
       - name: Run tests
         run: |
           if [ -d "tests" ]; then pytest; else echo "No tests folder found, skipping"; fi
@@ -44,7 +42,7 @@ jobs:
   deploy:
     needs: tests
     runs-on: ubuntu-latest
-    if: success() # Rulează doar dacă testele au trecut
+    if: success()
 
     steps:
       - name: Checkout
