@@ -166,6 +166,18 @@ def expand_name_filter(f: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
                     # Replace strict match with set inclusion
                     node["full_name_normalized"] = {"$in": variations}
 
+        # If we see name_tokens: ensure query values are lowercase
+        if "name_tokens" in node:
+            cond = node["name_tokens"]
+            # e.g. {$in: ["Ionut", "IONUT"]} -> {$in: ["ionut"]}
+            if isinstance(cond, dict):
+                for op in ("$in", "$nin", "$all"):
+                    if op in cond and isinstance(cond[op], list):
+                        cond[op] = [str(x).lower() for x in cond[op] if x]
+                for op in ("$eq", "$ne"):
+                    if op in cond and isinstance(cond[op], str):
+                        cond[op] = cond[op].lower()
+
         # Recurse logic
         for k, v in node.items():
             if k in ("$and", "$or") and isinstance(v, list):

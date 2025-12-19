@@ -12,6 +12,7 @@ ALLOWED_FILTER_FIELDS = {
     "tech_tokens",
     "image_search_tags",
     "full_name_normalized",
+    "name_tokens",
     "location_normalized",
     "school",
     "school_degree",
@@ -37,13 +38,16 @@ Rules:
   school (string)
   school_degree (string)
   job_title (string)
-  full_name_normalized (string, lowercase)
+  full_name_normalized (string, lowercase) - USE ONLY FOR EXACT FULL NAME MATCHES
+  name_tokens (list of strings) - USE FOR PARTIAL NAMES / FIRST NAMES
 
 - For visual attributes (e.g., "eyeglasses", "smiling", "beard"), use the boolean `eyewear_present`, `beard_present`, or `image_search_tags` filters.
 - **IMPORTANT**: Remove visual descriptors from the `semantic_query` to avoid biasing the vector search. The `semantic_query` should only contain professional criteria (skills, roles, experience).
 - **Location**: If the user explicitly asks for a city, use `location_normalized` (e.g. "Cluj", "Munich" -> "cluj-napoca", "munich").
 - **Education**: If the user asks for "Bachelor" or "Master" or specific university, use `school` or `school_degree`.
-- **Name**: If the user asks for a specific person by name, use `full_name_normalized` (e.g. "Ionuț Buraga" -> "ionut buraga").
+- **Name**: If the user asks for a person by name:
+  - If it looks like a full name (e.g. "Ionut Buraga"), use `full_name_normalized` (e.g. "ionut buraga").
+  - If it is a partial name (e.g. "Ionut"), use `name_tokens` with the `$in` operator (e.g. `{"name_tokens": {"$in": ["ionut"]}}`).
 - If a user asks for "python engineers with eyeglasses in Cluj", the `semantic_query` should be "python engineers" and the filter should be `{"$and": [{"eyewear_present": {"$eq": true}}, {"location_normalized": {"$eq": "cluj-napoca"}}]}`.
 - If you are unsure, omit the filter (do not guess).
 
