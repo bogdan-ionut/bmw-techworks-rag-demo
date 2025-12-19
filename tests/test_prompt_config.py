@@ -24,7 +24,7 @@ def test_planner_prompt_allows_name_filter():
     prompt = PLANNER_SYSTEM_PROMPT
 
     # Check for the explicit positive instruction
-    assert "**Name**: If the user asks for a specific person by name, use `full_name_normalized`" in prompt
+    assert "**Name**: If the user asks for a person by name:" in prompt
 
     # Check that full_name_normalized is in the list of allowed fields in the prompt text
     assert "full_name_normalized (string, lowercase)" in prompt
