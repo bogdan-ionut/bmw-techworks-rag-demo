@@ -462,8 +462,9 @@
       display: flex;
       flex-wrap: nowrap;
       gap: 12px;
-      justify-content: center;
-      padding: 0 24px;
+      justify-content: flex-start;
+      padding: 0 24px 12px;
+      overflow-x: auto;
     }
 
     .filter-chip {
@@ -477,6 +478,8 @@
       cursor: pointer;
       transition: var(--transition-base);
       box-shadow: var(--shadow-sm);
+      white-space: nowrap;
+      flex: 0 0 auto;
     }
 
     .filter-chip:hover {
@@ -1253,82 +1256,6 @@
         `;
       }
 
-      // Key Patterns
-      const keyPatterns = answer.key_patterns || {};
-      const hasPatterns = (keyPatterns.skills && keyPatterns.skills.length > 0) ||
-                          (keyPatterns.locations && keyPatterns.locations.length > 0) ||
-                          (keyPatterns.experience_levels && keyPatterns.experience_levels.length > 0);
-
-      if (hasPatterns) {
-          html += `
-            <div class="insight-section">
-              <div class="insight-header">
-                <svg class="insight-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
-                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
-                </svg>
-                <span class="insight-label">Key Themes</span>
-              </div>
-              <div class="filters-display">
-          `;
-
-          if (keyPatterns.skills) {
-            keyPatterns.skills.forEach(s => {
-                html += `<div class="filter-tag" style="background:#f0fdf4; color:#15803d; border-color:#dcfce7;">${escapeHtml(s)}</div>`;
-            });
-          }
-          if (keyPatterns.locations) {
-            keyPatterns.locations.forEach(s => {
-                html += `<div class="filter-tag" style="background:#fefce8; color:#a16207; border-color:#fef9c3;">${escapeHtml(s)}</div>`;
-            });
-          }
-           if (keyPatterns.experience_levels) {
-            keyPatterns.experience_levels.forEach(s => {
-                html += `<div class="filter-tag" style="background:#f1f5f9; color:#475569; border-color:#e2e8f0;">${escapeHtml(s)}</div>`;
-            });
-          }
-
-          html += `
-              </div>
-            </div>
-          `;
-      }
-
-      // Match Quality Overview
-      html += `
-        <div class="insight-section">
-          <div class="insight-header">
-            <svg class="insight-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M9 11l3 3L22 4"></path>
-              <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"></path>
-            </svg>
-            <span class="insight-label">Match Quality</span>
-          </div>
-          <div class="match-quality">
-            <div class="quality-bar">
-              <span class="quality-label">Excellent</span>
-              <div class="quality-track">
-                <div class="quality-fill excellent" style="width: ${(sources.length ? (tierCounts.excellent / sources.length * 100) : 0)}%"></div>
-              </div>
-              <span class="quality-count">${tierCounts.excellent}</span>
-            </div>
-            <div class="quality-bar">
-              <span class="quality-label">Good</span>
-              <div class="quality-track">
-                <div class="quality-fill good" style="width: ${(sources.length ? (tierCounts.good / sources.length * 100) : 0)}%"></div>
-              </div>
-              <span class="quality-count">${tierCounts.good}</span>
-            </div>
-            <div class="quality-bar">
-              <span class="quality-label">Potential</span>
-              <div class="quality-track">
-                <div class="quality-fill potential" style="width: ${(sources.length ? (tierCounts.potential / sources.length * 100) : 0)}%"></div>
-              </div>
-              <span class="quality-count">${tierCounts.potential}</span>
-            </div>
-          </div>
-        </div>
-      `;
 
       // Applied Filters
       if (filtersApplied && Object.keys(filtersApplied).length > 0) {
