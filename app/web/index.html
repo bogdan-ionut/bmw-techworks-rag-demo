@@ -1025,9 +1025,16 @@
               </select>
             </div>
             <div class="control-item">
+              <label for="plannerToggle">Query Planner</label>
+              <label class="toggle">
+                <input type="checkbox" id="plannerToggle" checked />
+                <div class="toggle-slider"></div>
+              </label>
+            </div>
+            <div class="control-item">
               <label for="aiToggle">AI Analysis</label>
               <label class="toggle">
-                <input type="checkbox" id="aiToggle" checked />
+                <input type="checkbox" id="aiToggle" />
                 <div class="toggle-slider"></div>
               </label>
             </div>
@@ -1158,6 +1165,7 @@
     const retrievalK = document.getElementById('retrievalK');
     const llmModelSelect = document.getElementById('llmModel');
     const aiToggle = document.getElementById('aiToggle');
+    const plannerToggle = document.getElementById('plannerToggle');
     const insightsContent = document.getElementById('insightsContent');
     const insightStatus = document.getElementById('insightStatus');
     const insightActions = document.getElementById('insightActions');
@@ -1482,13 +1490,14 @@
         const startTime = performance.now();
         const k = sanitizeRetrievalValue();
         const useAi = aiToggle.checked;
+        const usePlanner = plannerToggle.checked;
         const selectedLlmOption = llmModelSelect?.selectedOptions?.[0] || llmModelSelect?.options?.[llmModelSelect.selectedIndex];
         const llmModel = selectedLlmOption?.value;
         const llmProvider = selectedLlmOption?.dataset?.provider;
 
         try {
             // Step 1: Fetch search results first (fast)
-            const searchRes = await fetch(`/search?q=${encodeURIComponent(query)}&k=${k}`, { signal });
+            const searchRes = await fetch(`/search?q=${encodeURIComponent(query)}&k=${k}&planner=${usePlanner}`, { signal });
             if (!searchRes.ok) throw new Error(await searchRes.text());
             const searchData = await searchRes.json();
 
@@ -1514,6 +1523,7 @@
                         query,
                         k,
                         with_llm: true,
+                        planner: usePlanner,
                         sources: searchData.sources, // Pass sources to skip retrieval
                         llm_provider: llmProvider,
                         llm_model: llmModel,

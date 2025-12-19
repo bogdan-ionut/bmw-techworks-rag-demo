@@ -13,6 +13,10 @@ ALLOWED_FILTER_FIELDS = {
     "tech_tokens",
     "image_search_tags",
     "full_name_normalized",
+    "location_normalized",
+    "school",
+    "school_degree",
+    "job_title",
 }
 
 PLANNER_SYSTEM_PROMPT = """\
@@ -30,12 +34,16 @@ Rules:
   minimum_estimated_years_of_exp (number)
   tech_tokens (list of strings)
   image_search_tags (list of strings)
+  location_normalized (string, lowercase)
+  school (string)
+  school_degree (string)
+  job_title (string)
 
 - For visual attributes (e.g., "eyeglasses", "smiling", "beard"), use the boolean `eyewear_present`, `beard_present`, or `image_search_tags` filters.
 - **IMPORTANT**: Remove visual descriptors from the `semantic_query` to avoid biasing the vector search. The `semantic_query` should only contain professional criteria (skills, roles, experience).
-- **IMPORTANT**: Do NOT filter by location (city, country). Leave location terms in the `semantic_query` to allow partial matching.
-- If a user asks for "python engineers with eyeglasses", the `semantic_query` should be "python engineers" and the filter should be `{"eyewear_present": {"$eq": true}}`.
-- If a user asks for "people from Berlin", the `semantic_query` should be "people from Berlin" and the filter should be `null` (do not use location_normalized).
+- **Location**: If the user explicitly asks for a city, use `location_normalized` (e.g. "Cluj", "Munich" -> "cluj-napoca", "munich").
+- **Education**: If the user asks for "Bachelor" or "Master" or specific university, use `school` or `school_degree`.
+- If a user asks for "python engineers with eyeglasses in Cluj", the `semantic_query` should be "python engineers" and the filter should be `{"$and": [{"eyewear_present": {"$eq": true}}, {"location_normalized": {"$eq": "cluj-napoca"}}]}`.
 - If you are unsure, omit the filter (do not guess).
 
 Filter format must be Pinecone-compatible:
@@ -79,6 +87,37 @@ Your output MUST be a JSON object with the following schema:
 
 Be practical and focus on actionable insights for recruiters. Your goal is to help them understand the search results at a glance.
 """
+
+
+def sanitize_filter(flt: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Prevent Pinecone errors if planner outputs unknown metadata fields.
+    Keeps only ALLOWED_FILTER_FIELDS (+ logical operators).
+    """
+    if not flt or not isinstance(flt, dict):
+        return flt
+
+    def keep(node: Any) -> Any:
+        if isinstance(node, dict):
+            out: Dict[str, Any] = {}
+            for k, v in node.items():
+                if k in ("$and", "$or"):
+                    if isinstance(v, list):
+                        vv = [keep(x) for x in v]
+                        vv = [x for x in vv if x not in (None, {}, [])]
+                        if vv:
+                            out[k] = vv
+                    continue
+                if k.startswith("$"):
+                    out[k] = v
+                    continue
+                if k in ALLOWED_FILTER_FIELDS:
+                    out[k] = v
+            return out
+        return node
+
+    cleaned = keep(flt)
+    return cleaned if cleaned else None
 
 
 def format_candidates_for_prompt(candidates: List[Dict[str, Any]], max_chars: int = 1200) -> str:
