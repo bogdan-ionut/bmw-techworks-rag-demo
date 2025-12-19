@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -95,6 +96,21 @@ def _norm_str(x: Any) -> str:
     if x is None:
         return ""
     return str(x).strip()
+
+
+def _normalize_name(s: Any) -> str:
+    """
+    Lowercase and remove diacritics for search normalization.
+    e.g. "Ionuț Buraga" -> "ionut buraga"
+    """
+    if not s:
+        return ""
+    text = str(s).strip().lower()
+    # NFD decomposition (separate chars from accents)
+    text = unicodedata.normalize("NFD", text)
+    # Filter out non-spacing marks
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    return text
 
 
 def _safe_get(d: Dict[str, Any], path: List[str]) -> Any:
@@ -265,7 +281,7 @@ def build_metadata(rec: Dict[str, Any], embedding_text: str) -> Dict[str, Any]:
         # identity / UI
         "vmid": _norm_str(rec.get("vmid")),
         "full_name": _norm_str(rec.get("full_name")),
-        "full_name_normalized": _norm_str(rec.get("full_name_normalized")),
+        "full_name_normalized": _normalize_name(rec.get("full_name_normalized") or rec.get("full_name")),
         "profile_url": _norm_str(rec.get("profile_url")),
         "profile_image_s3_url": _norm_str(rec.get("profile_image_s3_url")),
         "profile_image_s3_key": _norm_str(rec.get("profile_image_s3_key")),
