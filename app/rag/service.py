@@ -1,3 +1,4 @@
+# app/rag/service.py
 from __future__ import annotations
 
 import argparse
@@ -25,9 +26,7 @@ from app.rag.prompt import (
     CITY_NORMALIZATION_MAP,
 )
 
-
 SAFE_MIN_LLM_MAX_TOKENS = 1200
-
 
 GLASSES_POS = re.compile(r"\b(eyeglasses|eye-glasses|glasses|spectacles)\b", re.I)
 GLASSES_NEG = re.compile(r"\b(no glasses|without glasses|no eyewear)\b", re.I)
@@ -112,7 +111,7 @@ def safe_json_loads(s: str) -> Dict[str, Any]:
     end = s.rfind("}")
     if start != -1 and end != -1 and end > start:
         try:
-            return json.loads(s[start : end + 1])
+            return json.loads(s[start: end + 1])
         except Exception:
             pass
 
@@ -294,7 +293,8 @@ async def plan_query_with_llm(user_query: str) -> Dict[str, Any]:
     return plan
 
 
-async def generate_answer(user_query: str, candidates: List[Dict[str, Any]], filters_applied: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+async def generate_answer(user_query: str, candidates: List[Dict[str, Any]],
+                          filters_applied: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     s = get_settings()
 
     llm = ChatOpenAI(
@@ -385,11 +385,11 @@ def _matches_filter(metadata: Dict[str, Any], filter_dict: Optional[Dict[str, An
 
 
 async def prepare_search_context(
-    user_query: str,
-    explicit_filter: Optional[Dict[str, Any]] = None,
-    top_k: int = 60,
-    rerank_top_n: int = 15,
-    use_planner: bool = True
+        user_query: str,
+        explicit_filter: Optional[Dict[str, Any]] = None,
+        top_k: int = 60,
+        rerank_top_n: int = 15,
+        use_planner: bool = True
 ) -> Dict[str, Any]:
     """
     Executes the retrieval, planning, filtering, and reranking steps.
@@ -450,7 +450,7 @@ async def prepare_search_context(
         md = dict(d.metadata or {})
         score = md.get("_score")
         if score is None:
-             score = 0.0
+            score = 0.0
 
         candidates.append(
             {
@@ -498,13 +498,13 @@ async def prepare_search_context(
 
 
 async def rag_search_async(
-    user_query: str,
-    explicit_filter: Optional[Dict[str, Any]] = None,
-    top_k: int = 60,
-    rerank_top_n: int = 15,
-    llm_top_n: int = 8,
-    use_planner: bool = True,
-    with_llm: bool = True
+        user_query: str,
+        explicit_filter: Optional[Dict[str, Any]] = None,
+        top_k: int = 60,
+        rerank_top_n: int = 15,
+        llm_top_n: int = 8,
+        use_planner: bool = True,
+        with_llm: bool = True
 ) -> Dict[str, Any]:
     # Use helper
     ctx = await prepare_search_context(
@@ -516,26 +516,13 @@ async def rag_search_async(
 
     answer = None
     llm_sec = 0.0
+
     if with_llm:
+        # Always generate AI answer if requested, regardless of complexity
         llm_candidates = candidates[:llm_top_n]
-        if ctx["complexity"] == "SIMPLE":
-             try:
-                answer = {
-                    "answer": "Here are the top matches for your search. Use the filters to refine the results.",
-                    "top_matches": [
-                        {
-                            "id": c.get("id"),
-                            "why_match": "High relevance match."
-                        }
-                        for c in llm_candidates
-                    ]
-                }
-             except Exception:
-                 answer = await generate_answer(user_query, llm_candidates, ctx["filters_applied"])
-        else:
-            t_llm_start = time.time()
-            answer = await generate_answer(user_query, llm_candidates, ctx["filters_applied"])
-            llm_sec = time.time() - t_llm_start
+        t_llm_start = time.time()
+        answer = await generate_answer(user_query, llm_candidates, ctx["filters_applied"])
+        llm_sec = time.time() - t_llm_start
     else:
         answer = {
             "answer": "",
@@ -560,9 +547,9 @@ async def rag_search_async(
 
 
 async def generate_answer_stream(
-    user_query: str,
-    candidates: List[Dict[str, Any]],
-    filters_applied: Optional[Dict[str, Any]]
+        user_query: str,
+        candidates: List[Dict[str, Any]],
+        filters_applied: Optional[Dict[str, Any]]
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     Generates answer stream tokens and final metadata.
@@ -605,7 +592,7 @@ async def generate_answer_stream(
                 if pre:
                     yield {"type": "token", "content": pre}
                 metadata_mode = True
-                buffer = post # Start accumulating JSON
+                buffer = post  # Start accumulating JSON
             else:
                 # Safety: Check if buffer ends with a partial delimiter.
                 # If not, we can flush safe parts.
@@ -636,12 +623,12 @@ async def generate_answer_stream(
 
 
 async def rag_search_stream_generator(
-    user_query: str,
-    explicit_filter: Optional[Dict[str, Any]] = None,
-    top_k: int = 60,
-    rerank_top_n: int = 15,
-    llm_top_n: int = 5,
-    use_planner: bool = True
+        user_query: str,
+        explicit_filter: Optional[Dict[str, Any]] = None,
+        top_k: int = 60,
+        rerank_top_n: int = 15,
+        llm_top_n: int = 5,
+        use_planner: bool = True
 ) -> AsyncGenerator[str, None]:
     """
     Orchestrates RAG and yields SSE events.
@@ -655,55 +642,13 @@ async def rag_search_stream_generator(
     metrics = ctx["metrics"]
     llm_candidates = candidates[:llm_top_n]
 
-    # 2. Check simple path
-    if ctx["complexity"] == "SIMPLE":
-        # Simulate stream for simple query
-        text = "Here are the top matches for your search. Use the filters to refine the results."
-        for word in text.split(" "):
-            yield f"data: {word} \n\n"
-            await asyncio.sleep(0.01)
-
-        # Metadata
-        meta = {
-            "top_matches": [
-                {"id": c.get("id"), "why_match": "High relevance match."}
-                for c in llm_candidates
-            ]
-        }
-
-        # We need to construct the final payload similar to regular response
-        # But we yield it as 'event: metadata'
-
-        final_payload = {
-            "answer": {"answer": text, "top_matches": meta["top_matches"]}, # reconstruct structure
-            "candidates": candidates, # pass raw candidates so API can hydrate
-            "metrics": metrics,
-            "filters_applied": ctx["filters_applied"],
-            "ctx": ctx
-        }
-
-        yield f"event: metadata\ndata: {json.dumps(final_payload, default=str)}\n\n"
-        return
+    # --- NO COMPLEXITY CHECK: Always stream via LLM ---
 
     # 3. LLM Stream
     t_llm_start = time.time()
     async for chunk in generate_answer_stream(user_query, llm_candidates, ctx["filters_applied"]):
         if chunk["type"] == "token":
-            # SSE data format
-            # Newlines in token might break SSE if not handled?
-            # Standard SSE: data: payload\n\n
-            # If payload has newline, it's usually data: line1\ndata: line2\n\n
-            # But here we stream tokens.
-            # Easiest is JSON encoded string or just raw if no newlines.
-            # Token often has newlines.
             safe_content = json.dumps(chunk["content"])
-            # Remove surrounding quotes? No, safer to keep valid JSON string
-            # Or just replace \n with \\n?
-            # Frontend expects `data: <token>`
-            # If I send `data: "hello"` (quoted), frontend needs to JSON parse.
-            # If I send `data: hello` (unquoted), frontend takes as string.
-            # If token is `\n`, `data: \n` is invalid.
-            # Let's send valid JSON string.
             yield f"data: {safe_content}\n\n"
 
         elif chunk["type"] == "metadata":
@@ -712,7 +657,7 @@ async def rag_search_stream_generator(
             # Construct final metadata
             final_payload = {
                 "answer": {"top_matches": chunk["content"].get("top_matches", [])},
-                "candidates": candidates, # needed for hydration
+                "candidates": candidates,  # needed for hydration
                 "metrics": metrics,
                 "filters_applied": ctx["filters_applied"]
             }
@@ -720,7 +665,8 @@ async def rag_search_stream_generator(
 
 
 def _cli() -> None:
-    parser = argparse.ArgumentParser(description="End-to-end RAG search (planner + filter + retrieve + rerank + answer)")
+    parser = argparse.ArgumentParser(
+        description="End-to-end RAG search (planner + filter + retrieve + rerank + answer)")
     parser.add_argument("query", type=str)
     parser.add_argument("--no-planner", action="store_true", help="Disable LLM query planner")
     args = parser.parse_args()
