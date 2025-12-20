@@ -435,7 +435,8 @@ async def rag_search_async(
         "latency_sec": time.time() - start_time,
         "retrieval_sec": retrieval_sec,
         "rerank_sec": rerank_sec,
-        "llm_sec": llm_sec
+        "llm_sec": llm_sec,
+        "query_type": complexity
     }
 
 
