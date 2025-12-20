@@ -217,75 +217,103 @@
     /* --- LOCKDOWN OVERLAY --- */
     #lockdownOverlay {
         position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        background: rgba(255, 255, 255, 0.2);
-        backdrop-filter: blur(12px);
+        /* Overshoot to ensure full coverage even if zoomed */
+        top: -100vh;
+        left: -100vw;
+        right: -100vw;
+        bottom: -100vh;
+        width: auto;
+        height: auto;
+        background: rgba(240, 244, 248, 0.4);
+        backdrop-filter: blur(20px);
         z-index: 9999;
         display: none; /* Toggled by JS */
-        align-items: center;
-        justify-content: center;
-        flex-direction: column;
     }
 
     .lockdown-card {
-        background: white;
-        padding: 40px;
-        border-radius: 24px;
-        box-shadow: 0 20px 50px rgba(0,0,0,0.2);
+        background: #fff;
+        /* Festive background gradient */
+        background-image:
+            radial-gradient(circle at top left, rgba(220, 38, 38, 0.08), transparent 40%),
+            radial-gradient(circle at bottom right, rgba(21, 128, 61, 0.08), transparent 40%);
+        padding: 50px;
+        border-radius: 32px;
+        box-shadow: 0 0 0 6px rgba(180, 83, 9, 0.1), 0 20px 60px rgba(0,0,0,0.15);
         text-align: center;
-        max-width: 400px;
+        max-width: 600px; /* Wider */
         width: 90%;
-        border: 1px solid var(--border-subtle);
-        position: relative;
+        border: 2px solid var(--christmas-gold);
+        position: fixed; /* Ensure centering relative to viewport */
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
         overflow: hidden;
     }
 
     .lockdown-title {
-        font-size: 24px;
+        font-size: 28px;
         font-weight: 800;
-        margin-bottom: 12px;
-        color: var(--text-primary);
+        margin-bottom: 16px;
+        color: var(--christmas-red);
+        font-family: "Plus Jakarta Sans", sans-serif;
+        text-shadow: 0 1px 2px rgba(220, 38, 38, 0.1);
     }
 
     .lockdown-input {
         width: 100%;
-        padding: 12px 16px;
-        border: 1px solid var(--border-medium);
+        padding: 16px 20px;
+        border: 2px solid var(--border-medium);
         border-radius: var(--radius-md);
-        margin: 20px 0;
-        font-size: 16px;
+        margin: 24px 0;
+        font-size: 18px;
         outline: none;
-        transition: border-color 0.2s;
+        transition: all 0.2s;
+        text-align: center;
+        background: #fdfdfd;
     }
     .lockdown-input:focus {
-        border-color: var(--accent-primary);
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        border-color: var(--christmas-gold);
+        box-shadow: 0 0 0 4px rgba(180, 83, 9, 0.15);
+        background: white;
     }
 
     .lockdown-btn {
-        background: var(--accent-primary);
+        background: linear-gradient(135deg, var(--christmas-red), #b91c1c);
         color: white;
         border: none;
-        padding: 12px 24px;
+        padding: 16px 32px;
         border-radius: var(--radius-md);
-        font-weight: 600;
+        font-weight: 700;
         cursor: pointer;
         width: 100%;
-        font-size: 16px;
-        transition: transform 0.1s;
+        font-size: 18px;
+        transition: transform 0.1s, box-shadow 0.2s;
+        box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
-    .lockdown-btn:active { transform: scale(0.98); }
+    .lockdown-btn:hover {
+        box-shadow: 0 6px 16px rgba(220, 38, 38, 0.4);
+        transform: translateY(-1px);
+    }
+    .lockdown-btn:active { transform: scale(0.98); translateY(0); }
 
     .lockdown-error {
-        color: var(--accent-error);
-        font-size: 13px;
-        margin-top: 12px;
-        min-height: 20px;
-        font-weight: 500;
+        color: var(--christmas-red);
+        font-size: 14px;
+        margin-top: 16px;
+        min-height: 24px;
+        font-weight: 600;
+        background: #fef2f2;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 12px;
+        opacity: 0;
+        transition: opacity 0.2s;
     }
+    .lockdown-error:not(:empty) { opacity: 1; padding: 8px 12px; }
 
     /* --- CHRISTMAS BANNER STYLES --- */
     .christmas-banner {
@@ -1069,13 +1097,13 @@
   <!-- Lockdown Overlay -->
   <div id="lockdownOverlay">
       <div class="lockdown-card">
-          <div style="font-size: 40px; margin-bottom: 10px;">🎄🔒</div>
-          <h2 class="lockdown-title">Santa's Safe Mode</h2>
-          <p style="color: var(--text-secondary); line-height: 1.5;">
-              Ho Ho Ho! Access to the Talent Intelligence Platform is restricted to authorized elves only.
+          <div style="font-size: 56px; margin-bottom: 16px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));">🎄✨</div>
+          <h2 class="lockdown-title">Santa's Secret Archive</h2>
+          <p style="color: var(--text-secondary); line-height: 1.6; font-size: 16px; margin-bottom: 8px;">
+              <strong>Ho Ho Ho!</strong> Only authorized elves with the magic key can view the Talent List.
           </p>
-          <input type="password" id="lockdownPass" class="lockdown-input" placeholder="Enter secret phrase..." />
-          <button id="lockdownSubmit" class="lockdown-btn">Unlock</button>
+          <input type="password" id="lockdownPass" class="lockdown-input" placeholder="Enter the magic word..." />
+          <button id="lockdownSubmit" class="lockdown-btn">🎁 Open Archive</button>
           <div id="lockdownError" class="lockdown-error"></div>
       </div>
   </div>
@@ -1701,7 +1729,7 @@
       try {
           const check = await fetch('/meta');
           if (check.status === 403) {
-              document.getElementById('lockdownOverlay').style.display = 'flex';
+              document.getElementById('lockdownOverlay').style.display = 'block';
           } else {
               populateLlmSelector();
           }
