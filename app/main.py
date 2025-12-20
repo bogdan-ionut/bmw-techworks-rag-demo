@@ -7,9 +7,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request, Response, HTTPException, Depends
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 
@@ -31,7 +32,7 @@ except Exception:
 from pinecone import Pinecone
 
 from app.api.routes import router as api_router
-from app.core.config import get_settings
+from app.core.config import get_settings, Settings
 from app.core.logging import init_logging
 
 # init logging as early as possible
@@ -171,6 +172,48 @@ async def lifespan(app: FastAPI):
 BASE_DIR = Path(__file__).resolve().parent
 
 app = FastAPI(title="BMW TechWorks RAG Demo", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    # Pass through health, root, web static files, and auth verification
+    # Using startswith for /web to cover all static assets
+    if (
+        request.url.path in ["/", "/health", "/auth/verify"]
+        or request.url.path.startswith("/web")
+    ):
+        return await call_next(request)
+
+    # Check for access_token cookie
+    token = request.cookies.get("access_token")
+    if token == "authorized":
+        return await call_next(request)
+
+    return JSONResponse(status_code=403, content={"detail": "Not authenticated"})
+
+
+class AuthRequest(BaseModel):
+    password: str
+
+
+@app.post("/auth/verify")
+async def verify_password(
+    body: AuthRequest,
+    response: Response,
+    settings: Settings = Depends(get_settings)
+):
+    if body.password == settings.demo_password:
+        # Set HttpOnly cookie valid for session (or max_age)
+        response.set_cookie(
+            key="access_token",
+            value="authorized",
+            httponly=True,
+            samesite="lax"
+        )
+        return {"status": "ok"}
+    raise HTTPException(status_code=401, detail="Invalid password")
+
+
 app.include_router(api_router)
 
 WEB_DIR = resolve_web_dir(BASE_DIR)
