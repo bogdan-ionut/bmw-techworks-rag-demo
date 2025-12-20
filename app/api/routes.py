@@ -1,4 +1,3 @@
-# app/api/routes.py
 from __future__ import annotations
 
 import ast
@@ -6,8 +5,10 @@ import json
 import logging
 import re
 import time
+import asyncio
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -23,6 +24,7 @@ except Exception:
 from app.rag.prompt import (
     ANSWER_SYSTEM_PROMPT,
     PLANNER_SYSTEM_PROMPT,
+    CITY_NORMALIZATION_MAP,
     format_candidates_for_prompt,
     sanitize_filter,
 )
@@ -339,7 +341,7 @@ def _log_llm_raw_output(resp: Any, raw: str, provider: str, model: Optional[str]
 # -----------------------------
 # Query planner (LLM-based filter extraction)
 # -----------------------------
-def _run_query_planner(
+async def _run_query_planner(
     request: Request,
     query: str,
     provider: str,
@@ -352,7 +354,8 @@ def _run_query_planner(
     """
     llm = _get_llm_client(request, provider, model)
     try:
-        resp = llm.invoke(
+        # Use async invoke
+        resp = await llm.ainvoke(
             [
                 SystemMessage(content=PLANNER_SYSTEM_PROMPT),
                 HumanMessage(content=f"User query: \"\"\"{query}\"\"\""),
@@ -393,25 +396,38 @@ def _normalize_filter_values(flt: Optional[Dict[str, Any]]) -> Optional[Dict[str
     if not flt or not isinstance(flt, dict):
         return flt
 
-    # 1. Normalizează name_tokens (pentru că ingestion-ul le face lowercase)
+    # 1. Normalize name_tokens
     if "name_tokens" in flt:
         cond = flt["name_tokens"]
         if isinstance(cond, dict):
-            # Cazul {$in: ["Ionut"]} -> {$in: ["ionut"]}
+            # Case {$in: ["Ionut"]} -> {$in: ["ionut"]}
             if "$in" in cond and isinstance(cond["$in"], list):
                 cond["$in"] = [str(x).lower() for x in cond["$in"]]
-            # Cazul {$eq: "Ionut"} -> {$eq: "ionut"}
+            # Case {$eq: "Ionut"} -> {$eq: "ionut"}
             if "$eq" in cond and isinstance(cond["$eq"], str):
                 cond["$eq"] = cond["$eq"].lower()
 
-    # 2. Normalizează location_normalized
+    # 2. Normalize location_normalized
     if "location_normalized" in flt:
         cond = flt["location_normalized"]
         if isinstance(cond, dict):
+            # Handle $eq
             if "$eq" in cond and isinstance(cond["$eq"], str):
-                cond["$eq"] = cond["$eq"].lower()
+                val = cond["$eq"].lower().strip()
+                cond["$eq"] = CITY_NORMALIZATION_MAP.get(val, val)
 
-    # 3. Mergi recursiv pentru structuri complexe ($and, $or)
+            # Handle $in
+            if "$in" in cond and isinstance(cond["$in"], list):
+                new_vals = []
+                for v in cond["$in"]:
+                    if isinstance(v, str):
+                        clean_v = v.strip().lower()
+                        new_vals.append(CITY_NORMALIZATION_MAP.get(clean_v, clean_v))
+                    else:
+                        new_vals.append(v)
+                cond["$in"] = new_vals
+
+    # 3. Recursively for complex structures ($and, $or)
     for k, v in flt.items():
         if k in ("$and", "$or") and isinstance(v, list):
             for item in v:
@@ -650,7 +666,7 @@ def _coerce_answer_obj(
 # -----------------------------
 # Pinecone search (semantic) with optional metadata filter
 # -----------------------------
-def _pinecone_query(
+async def _pinecone_query(
     request: Request,
     query: str,
     top_k: int,
@@ -664,10 +680,16 @@ def _pinecone_query(
     namespace = request.app.state.settings.pinecone_namespace
 
     t_embed_start = time.time()
-    vec = embeddings.embed_query(query)
+    # Embed async if possible (OpenAI embeddings usually have aembed_query)
+    if hasattr(embeddings, "aembed_query"):
+        vec = await embeddings.aembed_query(query)
+    else:
+        # Run in threadpool
+        loop = asyncio.get_running_loop()
+        vec = await loop.run_in_executor(None, embeddings.embed_query, query)
     t_embed_end = time.time()
 
-    # Log if embedding is slow (likely cause of "exploded" pinecone time)
+    # Log if embedding is slow
     embed_sec = t_embed_end - t_embed_start
     if embed_sec > 1.0:
         logger.warning(
@@ -675,13 +697,19 @@ def _pinecone_query(
             extra={"query": query, "embedding_sec": embed_sec, "model": getattr(embeddings, "model", "unknown")}
         )
 
-    res = index.query(
-        vector=vec,
-        top_k=top_k,
-        include_metadata=True,
-        namespace=namespace,
-        filter=flt,
-    )
+    # Run Pinecone query in threadpool (blocking I/O)
+    loop = asyncio.get_running_loop()
+
+    def _sync_query():
+        return index.query(
+            vector=vec,
+            top_k=top_k,
+            include_metadata=True,
+            namespace=namespace,
+            filter=flt,
+        )
+
+    res = await loop.run_in_executor(None, _sync_query)
 
     matches = res.get("matches") if isinstance(res, dict) else getattr(res, "matches", []) or []
     sources: List[Dict[str, Any]] = []
@@ -734,7 +762,7 @@ def _pinecone_query(
                 "company": md.get("company"),
                 "tech_tokens": md.get("tech_tokens"),
                 "minimum_estimated_years_of_exp": md.get("minimum_estimated_years_of_exp"),
-                # best context (already built in ingestion)
+                # best context
                 "embedding_text": md.get("embedding_text") or "",
             }
         )
@@ -745,7 +773,7 @@ def _pinecone_query(
 # -----------------------------
 # Cohere rerank (top_k -> top_n), reorder cards
 # -----------------------------
-def _cohere_rerank_sources(
+async def _cohere_rerank_sources(
     request: Request,
     query: str,
     sources: List[Dict[str, Any]],
@@ -756,38 +784,32 @@ def _cohere_rerank_sources(
     if not settings.cohere_api_key:
         return sources
 
-    # Check if global instance check passed
-    # but use a fresh instance/call for dynamic top_n
-
     # Defaults
     top_n = dynamic_top_n if dynamic_top_n is not None else settings.cohere_rerank_top_n
 
-    # Prepare candidates in format expected by rerank_candidates (requires 'text' key)
-    # But wait, rerank_candidates expects `text` field in dict.
-    # _source_to_text(s) creates the text.
     candidates = []
     for s in sources:
-        # We need to preserve the original source dict, but rerank_candidates returns metadata.
-        # rerank_candidates implementation:
-        # docs = [Document(page_content=str(c.get("text") or ""), metadata=c) ...]
-        # out = [d.metadata for d in reranked_docs]
-        # So we can pass the source as metadata.
-        # But rerank_candidates looks for 'text' in the candidate dict to build page_content.
         c = dict(s)
         c["text"] = _source_to_text(s)
         candidates.append(c)
 
-    reranked = rerank_candidates(
-        query=query,
-        candidates=candidates,
-        cohere_api_key=settings.cohere_api_key,
-        model=settings.cohere_rerank_model,
-        top_n=top_n,
-    )
+    # Run in executor to unblock
+    loop = asyncio.get_running_loop()
 
-    # Restore the "append rest" logic to avoid truncation if reranking subset
-    # This was present in the original implementation to ensure we still return k items
-    # even if we only reranked top N.
+    def _sync_rerank():
+        return rerank_candidates(
+            query=query,
+            candidates=candidates,
+            cohere_api_key=settings.cohere_api_key,
+            model=settings.cohere_rerank_model,
+            top_n=top_n,
+        )
+
+    try:
+        reranked = await loop.run_in_executor(None, _sync_rerank)
+    except Exception as e:
+        logger.error(f"Cohere rerank failed: {e}", exc_info=True)
+        return sources
 
     # reranked contains the top N reranked items.
     top_ids = {_source_id(s) for s in reranked}
@@ -808,7 +830,7 @@ def _cohere_rerank_sources(
 # Routes
 # -----------------------------
 @router.get("/health", include_in_schema=False)
-def health() -> Dict[str, Any]:
+async def health() -> Dict[str, Any]:
     return {"ok": True}
 
 
@@ -825,7 +847,7 @@ def _merge_filters(
 
 
 @router.get("/search")
-def search_endpoint(
+async def search_endpoint(
     request: Request,
     q: str = Query(..., min_length=1),
     k: int = Query(24, ge=1, le=32),
@@ -847,8 +869,12 @@ def search_endpoint(
         except Exception:
             explicit_filter = None
 
+    # Parallelize planner and optional speculative search (if we wanted to, but search depends on filter)
+    # Here search depends on planner filter, so strict sequence for now unless we do broad search.
+    # For now, let's just make it async.
+
     if planner:
-        planned = _run_query_planner(request, query, selected_provider, selected_model)
+        planned = await _run_query_planner(request, query, selected_provider, selected_model)
         semantic_query = planned.get("semantic_query") or query
         inferred_filter = _normalize_filter_values(sanitize_filter(planned.get("filter")))
     else:
@@ -870,24 +896,13 @@ def search_endpoint(
         return cached
 
     t0 = time.time()
-    sources, retrieved_docs, embed_sec = _pinecone_query(request, semantic_query, top_k=int(k), flt=flt)
+    sources, retrieved_docs, embed_sec = await _pinecone_query(request, semantic_query, top_k=int(k), flt=flt)
     t1 = time.time()
 
     rerank_sec = 0.0
     if bool(s.rerank_in_search):
         rerank_start = time.time()
-        # Dynamic Rerank Logic:
-        # If retrieved count is small, adapt top_n.
-        # k is the requested retrieval count.
-        # sources is the actual retrieved count.
-
-        # We can pass k, or just rely on len(sources).
-        # rerank_candidates handles min(len(sources), top_n) internally.
-        # But we can also cap it here by configuration if needed.
-
-        # Just pass defaults, let rerank_candidates handle logic.
-        sources = _cohere_rerank_sources(request, query, sources, dynamic_top_n=s.cohere_rerank_top_n)
-
+        sources = await _cohere_rerank_sources(request, query, sources, dynamic_top_n=s.cohere_rerank_top_n)
         rerank_end = time.time()
         rerank_sec = round(rerank_end - rerank_start, 2)
 
@@ -906,7 +921,7 @@ def search_endpoint(
 
 
 @router.post("/query")
-def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
+async def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     s = request.app.state.settings
     cache = request.app.state.cache
     ttl = int(s.cache_ttl_sec)
@@ -920,8 +935,19 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
 
     start = time.time()
 
+    # Speculative Execution:
+    # 1. Start Planner
+    # 2. Start Embedding of RAW Query (in case planner fails or for fallback)
+    # Actually, we can't search pinecone without filter if filter is important.
+    # But embedding the query takes time.
+    # We can start embedding "query" now. If planner changes semantic_query significantly, we might waste it.
+    # But usually planner semantic_query ~= query.
+
+    # Let's do straight Async first, as parallelism logic is complex if dependencies exist.
+    # However, we can await planner.
+
     if body.planner:
-        planned = _run_query_planner(request, query, selected_provider, selected_model)
+        planned = await _run_query_planner(request, query, selected_provider, selected_model)
         semantic_query = planned.get("semantic_query") or query
         inferred_filter = _normalize_filter_values(sanitize_filter(planned.get("filter")))
     else:
@@ -932,7 +958,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
 
     embed_sec = 0.0
 
-    # 1) retrieve + rerank (if sources are not passed in)
+    # 1) retrieve + rerank
     if body.sources and len(body.sources) > 0:
         sources = body.sources
         retrieved_docs = len(sources)
@@ -940,22 +966,17 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         rerank_sec = 0.0
     else:
         t0 = time.time()
-        sources, retrieved_docs, embed_sec = _pinecone_query(request, semantic_query, top_k=k, flt=flt)
+        sources, retrieved_docs, embed_sec = await _pinecone_query(request, semantic_query, top_k=k, flt=flt)
         t1 = time.time()
 
         rerank_start = time.time()
-        # Use dynamic rerank
-        sources = _cohere_rerank_sources(request, semantic_query, sources, dynamic_top_n=s.cohere_rerank_top_n)
+        sources = await _cohere_rerank_sources(request, semantic_query, sources, dynamic_top_n=s.cohere_rerank_top_n)
         rerank_end = time.time()
         rerank_sec = round(rerank_end - rerank_start, 2)
 
-    # Effective top_matches count for UI/answer payload
     top_n_cfg = int(getattr(s, "context_max_people", DEFAULT_FALLBACK_TOP_N) or DEFAULT_FALLBACK_TOP_N)
     top_n = max(0, min(top_n_cfg, len(sources or [])))
 
-    # Build candidates for the answer prompt
-    # OPTIMIZATION: Only send the top_n most relevant profiles to the LLM to save tokens.
-    # The 'sources' list is already reranked, so taking the first 'top_n' gives the best matches.
     candidates: List[Dict[str, Any]] = []
     for s0 in sources[:top_n]:
         candidates.append(
@@ -966,12 +987,12 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
                 "metadata": {
                     "full_name": s0.get("full_name"),
                     "profile_url": s0.get("profile_url"),
-                    "profile_image_s3_url": s0.get("profile_image_url"),  # prompt expects this key
+                    "profile_image_s3_url": s0.get("profile_image_url"),
                 },
             }
         )
 
-    # 3) skip LLM (optional) -> still return useful AI Insights payload
+    # 3) skip LLM check
     if not with_llm or (s.skip_llm_for_short and _looks_like_short_search(query)):
         answer_obj = _fallback_answer_obj(
             query=query,
@@ -1002,7 +1023,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
             "llm_total_tokens": 0,
         }
 
-    # 4) cache LLM answer (include filters)
+    # 4) cache LLM answer
     cache_key = (
         "rag",
         query.lower(),
@@ -1027,13 +1048,6 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         cached["pinecone_sec"] = cached.get("pinecone_sec", round(t1 - t0, 2))
         cached["rerank_sec"] = rerank_sec
         cached["latency_sec"] = round(time.time() - start, 2)
-        cached.setdefault("llm_sec", 0.0)
-        cached.setdefault("llm_prompt_tokens", 0)
-        cached.setdefault("llm_completion_tokens", 0)
-        cached.setdefault("llm_total_tokens", 0)
-        cached.setdefault("llm_provider", selected_provider)
-        cached.setdefault("llm_model", selected_model)
-        cached.setdefault("llm_fallback_reason", None)
         return cached
 
     # 5) LLM -> JSON answer
@@ -1046,54 +1060,44 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         "candidates_text": format_candidates_for_prompt(candidates),
     }
 
-    # Make output robust:
-    # - enforce JSON output (OpenAI JSON mode when available)
-    # - avoid truncation by using a safer max_tokens floor
     effective_max_tokens = max(int(getattr(s, "max_tokens", 0) or 0), SAFE_MIN_LLM_MAX_TOKENS)
 
     llm_call = llm
     fallback_reason: Optional[str] = None
     if selected_provider == "GEMINI":
         try:
-            # Gemini uses max_output_tokens and rejects unknown fields
             llm_call = llm_call.bind(max_output_tokens=effective_max_tokens)
         except Exception:
             pass
-        # Do NOT pass response_format to Gemini (raises validation errors)
     else:
         try:
             llm_call = llm_call.bind(max_tokens=effective_max_tokens)
         except Exception:
             pass
-
         try:
-            # Works for OpenAI ChatCompletions JSON mode in langchain (ignored by non-OpenAI providers)
             llm_call = llm_call.bind(response_format={"type": "json_object"})
         except Exception:
             pass
 
-    # REDUCE OUTPUT TOKENS TO IMPROVE LATENCY
     tight_system = (
         ANSWER_SYSTEM_PROMPT
         + "\n\nHard constraints:\n"
         + f"- Return exactly {max(0, top_n)} top_matches.\n"
         + "- Keep 'answer' very short (max 300 chars, ~2 sentences).\n"
-        + "- 'why_match' MUST be a single line, max 10 words (e.g. 'Strong Python & AWS exp; lacks React.').\n"
+        + "- 'why_match' MUST be a single line, max 10 words.\n"
         + "- Return JSON ONLY (no Markdown fences).\n"
     )
 
     try:
-        resp = llm_call.invoke(
+        # Use async invoke
+        resp = await llm_call.ainvoke(
             [
                 SystemMessage(content=tight_system),
                 HumanMessage(content=json.dumps(user_msg, ensure_ascii=False)),
             ]
         )
     except Exception as e:
-        logger.exception(
-            "LLM invoke failed; using fallback",
-            extra={"query": query, "llm_provider": selected_provider, "llm_model": selected_model, "llm_error": str(e)},
-        )
+        logger.exception("LLM invoke failed", extra={"error": str(e)})
         fallback_reason = "llm_invoke_failed"
         answer_obj = _fallback_answer_obj(
             query=query,
@@ -1138,62 +1142,31 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         answer_obj = _coerce_answer_obj(query, flt, sources, parsed, top_n=top_n)
         logger.info("LLM parsing successful", extra={"query": query})
 
-        # Inject reasoning back into sources for the UI
         top_matches = answer_obj.get("top_matches") or []
-        reasoning_map = {m.get("id"): m.get("why_match") for m in top_matches if m.get("id")}
-
-        # Hydrate top_matches with full metadata from sources
-        # because the LLM was instructed not to return full_name/profile_url to save tokens
         source_map = {s.get("id"): s for s in sources if s.get("id")}
 
         for m in top_matches:
             mid = m.get("id")
             if mid and mid in source_map:
                 s = source_map[mid]
-                # Restore key fields if missing
                 if not m.get("full_name"):
                     m["full_name"] = s.get("full_name") or ""
                 if not m.get("profile_url"):
                     m["profile_url"] = s.get("profile_url") or ""
                 if not m.get("image_url"):
-                    # The source has profile_image_url populated from profile_image_s3_url in _pinecone_query
                     m["image_url"] = s.get("profile_image_url") or None
-
-                # Also inject reasoning back into the source object itself (redundant but safe)
                 if m.get("why_match"):
                     s["reasoning"] = m.get("why_match")
 
     except Exception as e:
-        logger.exception(
-            "LLM failed; attempting to salvage unstructured output",
-            extra={
-                "query": query,
-                "llm_error": str(e),
-                "llm_provider": selected_provider,
-                "llm_model": selected_model,
-                "llm_raw_snippet": raw[:1500],
-            },
-        )
-
-        answer_obj = _answer_from_unstructured_raw(
-            raw,
-            query=query,
-            flt=flt,
-            sources=sources,
-            top_n=top_n,
-        )
-        if answer_obj is not None:
+        logger.exception("LLM failed to parse", extra={"error": str(e)})
+        answer_obj = _answer_from_unstructured_raw(raw, query, flt, sources, top_n=top_n)
+        if answer_obj:
             fallback_reason = "unstructured_output"
-            logger.info("LLM output unstructured; surfaced raw text", extra={"query": query})
         else:
             fallback_reason = "llm_fallback"
             answer_obj = _fallback_answer_obj(
-                query=query,
-                flt=flt,
-                sources=sources,
-                top_n=top_n,
-                reason="LLM fallback",
-                raw=raw,
+                query, flt, sources, top_n=top_n, reason="LLM fallback", raw=raw
             )
 
     result = {
@@ -1223,7 +1196,7 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
 
 
 @router.get("/meta", include_in_schema=False)
-def meta(request: Request) -> Dict[str, Any]:
+async def meta(request: Request) -> Dict[str, Any]:
     s = request.app.state.settings
     return {
         "pinecone_index": s.pinecone_index_name,
@@ -1232,17 +1205,6 @@ def meta(request: Request) -> Dict[str, Any]:
         "llm_provider": s.llm_provider,
         "openai_model": s.openai_model,
         "gemini_model": s.gemini_model,
-        "available_llms": {
-            "OPENAI": [
-                {"name": "GPT-4o mini", "value": "gpt-4o-mini-2024-07-18"},
-                {"name": "GPT-5 mini", "value": "gpt-5-mini-2025-08-07"},
-                {"name": "GPT-5 nano", "value": "gpt-5-nano-2025-08-07"},
-            ],
-            "GEMINI": [
-                {"name": "Gemini 3 Flash", "value": "gemini-3-flash-preview"},
-                {"name": "Gemini 2.5 Flash", "value": "gemini-2.5-flash"},
-            ],
-        },
         "cohere_rerank_top_n": s.cohere_rerank_top_n,
         "cache_ttl_sec": s.cache_ttl_sec,
         "frontend": "app/web/index.html",

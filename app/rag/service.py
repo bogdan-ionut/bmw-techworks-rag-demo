@@ -16,6 +16,7 @@ from app.rag.rerank import rerank_candidates
 from app.rag.prompt import (
     PLANNER_SYSTEM_PROMPT,
     ANSWER_SYSTEM_PROMPT,
+    CITY_NORMALIZATION_MAP,
     format_candidates_for_prompt,
     ALLOWED_FILTER_FIELDS,
     sanitize_filter,
@@ -30,6 +31,54 @@ GLASSES_NEG = re.compile(r"\b(no glasses|without glasses|no eyewear)\b", re.I)
 
 BEARD_POS = re.compile(r"\b(beard|bearded|mustache|moustache)\b", re.I)
 BEARD_NEG = re.compile(r"\b(clean[- ]shaven|no beard)\b", re.I)
+
+
+def normalize_location_filter(f: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Normalizes 'location_normalized' values to a canonical form using a static map.
+    Example: "Cluj" -> "cluj-napoca"
+    """
+    if not f:
+        return f
+
+    new_f = copy.deepcopy(f)
+
+    def _visit(node: Any) -> Any:
+        if not isinstance(node, dict):
+            return node
+
+        if "location_normalized" in node:
+            cond = node["location_normalized"]
+            # Handle $eq
+            if isinstance(cond, dict) and "$eq" in cond:
+                val = cond["$eq"]
+                if isinstance(val, str):
+                    clean_val = val.strip().lower()
+                    if clean_val in CITY_NORMALIZATION_MAP:
+                        cond["$eq"] = CITY_NORMALIZATION_MAP[clean_val]
+                    else:
+                        cond["$eq"] = clean_val
+            # Handle $in
+            if isinstance(cond, dict) and "$in" in cond:
+                vals = cond["$in"]
+                if isinstance(vals, list):
+                    new_vals = []
+                    for v in vals:
+                        if isinstance(v, str):
+                            clean_v = v.strip().lower()
+                            new_vals.append(CITY_NORMALIZATION_MAP.get(clean_v, clean_v))
+                        else:
+                            new_vals.append(v)
+                    cond["$in"] = new_vals
+
+        # Recurse
+        for k, v in node.items():
+            if k in ("$and", "$or") and isinstance(v, list):
+                node[k] = [_visit(item) for item in v]
+
+        return node
+
+    return _visit(new_f)
 
 
 def hard_filters_from_text(q: str) -> Tuple[Optional[Dict[str, Any]], str]:
@@ -266,6 +315,7 @@ def rag_search(user_query: str, use_planner: bool = True) -> Dict[str, Any]:
         rerank_top_n = s.cohere_rerank_top_n
 
     merged_filter = sanitize_filter(merge_filters(hard_filter, plan_filter))
+    merged_filter = normalize_location_filter(merged_filter) # Added normalization
     merged_filter = expand_name_filter(merged_filter)
 
     docs = retrieve_profiles(

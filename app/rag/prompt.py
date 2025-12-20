@@ -5,6 +5,16 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List
 
+CITY_NORMALIZATION_MAP = {
+    "cluj": "cluj-napoca",
+    "cluj napoca": "cluj-napoca",
+    "bucuresti": "bucharest",
+    "bucurești": "bucharest",
+    "timisoara": "timișoara",
+    "munchen": "munich",
+    "münchen": "munich",
+}
+
 ALLOWED_FILTER_FIELDS = {
     "eyewear_present",
     "beard_present",

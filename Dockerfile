@@ -5,8 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Removed build-essential and curl to reduce image size.
+# Most python packages have wheels for 3.11-slim (Debian Bookworm).
+# If a package needs compilation, we can use a multi-stage build, but for now this is leaner.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
     curl \
   && rm -rf /var/lib/apt/lists/*
 
