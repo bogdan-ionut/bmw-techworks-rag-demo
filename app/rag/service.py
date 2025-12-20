@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import asyncio
 import copy
 import re
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,6 +20,7 @@ from app.rag.prompt import (
     format_candidates_for_prompt,
     ALLOWED_FILTER_FIELDS,
     sanitize_filter,
+    CITY_NORMALIZATION_MAP,
 )
 
 
@@ -133,6 +135,48 @@ def merge_filters(a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> O
     if b and not a:
         return b
     return {"$and": [a, b]}
+
+
+def normalize_location_filter(f: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Normalize 'location_normalized' values using CITY_NORMALIZATION_MAP.
+    """
+    if not f:
+        return f
+
+    new_f = copy.deepcopy(f)
+
+    def _visit(node: Any) -> Any:
+        if not isinstance(node, dict):
+            return node
+
+        # If we see location_normalized: {...}
+        if "location_normalized" in node:
+            cond = node["location_normalized"]
+            if isinstance(cond, dict):
+                # Handle $eq
+                if "$eq" in cond and isinstance(cond["$eq"], str):
+                    raw = cond["$eq"].lower().strip()
+                    cond["$eq"] = CITY_NORMALIZATION_MAP.get(raw, raw)
+                # Handle $in
+                if "$in" in cond and isinstance(cond["$in"], list):
+                    normalized_list = []
+                    for item in cond["$in"]:
+                        if isinstance(item, str):
+                            raw = item.lower().strip()
+                            normalized_list.append(CITY_NORMALIZATION_MAP.get(raw, raw))
+                        else:
+                            normalized_list.append(item)
+                    cond["$in"] = normalized_list
+
+        # Recurse logic
+        for k, v in node.items():
+            if k in ("$and", "$or") and isinstance(v, list):
+                node[k] = [_visit(item) for item in v]
+
+        return node
+
+    return _visit(new_f)
 
 
 def expand_name_filter(f: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
