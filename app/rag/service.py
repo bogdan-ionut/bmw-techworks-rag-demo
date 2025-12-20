@@ -1,4 +1,3 @@
-# app/rag/service.py
 from __future__ import annotations
 
 import argparse
@@ -6,6 +5,7 @@ import json
 import asyncio
 import copy
 import re
+import time
 from typing import Any, Dict, List, Optional, Tuple
 from functools import partial
 
@@ -280,8 +280,8 @@ async def plan_query_with_llm(user_query: str) -> Dict[str, Any]:
     )
     plan = safe_json_loads(out.content)
 
-    plan.setdefault("top_k", 30)
-    plan.setdefault("rerank_top_n", s.cohere_rerank_top_n)
+    plan.setdefault("top_k", 60)
+    plan.setdefault("rerank_top_n", 15)
     plan.setdefault("semantic_query", user_query)
     plan.setdefault("filter", None)
 
@@ -321,32 +321,45 @@ async def generate_answer(user_query: str, candidates: List[Dict[str, Any]], fil
         }
 
 
-async def rag_search_async(user_query: str, use_planner: bool = True) -> Dict[str, Any]:
+async def rag_search_async(
+    user_query: str,
+    explicit_filter: Optional[Dict[str, Any]] = None,
+    top_k: int = 60,
+    rerank_top_n: int = 15,
+    llm_top_n: int = 8,
+    use_planner: bool = True,
+    with_llm: bool = True
+) -> Dict[str, Any]:
     s = get_settings()
+    start_time = time.time()
 
     complexity = _classify_query_complexity(user_query)
     should_use_planner = use_planner and (complexity != "SIMPLE")
 
     hard_filter, cleaned_semantic = hard_filters_from_text(user_query)
 
+    plan_filter = None
+    semantic_query = cleaned_semantic or user_query
+
     if should_use_planner:
         plan = await plan_query_with_llm(user_query)
         plan_filter = plan.get("filter")
         semantic_query = (plan.get("semantic_query") or cleaned_semantic or user_query).strip()
-        top_k = int(plan.get("top_k", 30))
-        rerank_top_n = int(plan.get("rerank_top_n", s.cohere_rerank_top_n))
-    else:
-        # Planner disabled: use raw query + basic regex filters
-        plan_filter = None
-        semantic_query = cleaned_semantic or user_query
-        top_k = 30
-        rerank_top_n = s.cohere_rerank_top_n
+        # Planner might override top_k/rerank_top_n, but we respect defaults if not present
+        if plan.get("top_k"):
+             # Keep the higher of the two to be safe? Or prefer planner?
+             # Let's prefer the function arg if it was explicitly passed (not default),
+             # but here we can't easily distinguish. Let's trust the planner if it has an opinion,
+             # but default to our robust defaults.
+             pass
 
-    merged_filter = sanitize_filter(merge_filters(hard_filter, plan_filter))
+    # Merge filters: explicit > hard > plan
+    merged_filter = sanitize_filter(merge_filters(merge_filters(hard_filter, plan_filter), explicit_filter))
     merged_filter = normalize_location_filter(merged_filter)
     merged_filter = expand_name_filter(merged_filter)
 
     loop = asyncio.get_running_loop()
+    t0 = time.time()
     docs = await loop.run_in_executor(
         None,
         partial(
@@ -356,21 +369,30 @@ async def rag_search_async(user_query: str, use_planner: bool = True) -> Dict[st
             metadata_filter=merged_filter,
         )
     )
+    t1 = time.time()
+    retrieval_sec = t1 - t0
 
     candidates: List[Dict[str, Any]] = []
     for d in docs:
         md = dict(d.metadata or {})
+        # Ensure we have a score
+        score = md.get("_score")
+        if score is None:
+             score = 0.0 # fallback
+
         candidates.append(
             {
                 "id": md.get("_id"),
-                "score": md.get("_score"),
+                "score": score,
                 "text": d.page_content,
                 "metadata": md,
             }
         )
 
     # rerank (optional)
-    if s.cohere_api_key:
+    rerank_sec = 0.0
+    if s.cohere_api_key and candidates:
+        t_rerank_start = time.time()
         candidates = await loop.run_in_executor(
             None,
             partial(
@@ -382,10 +404,25 @@ async def rag_search_async(user_query: str, use_planner: bool = True) -> Dict[st
                 top_n=rerank_top_n,
             )
         )
+        rerank_sec = time.time() - t_rerank_start
     else:
+        # Just slice if no reranker
         candidates = candidates[:rerank_top_n]
 
-    answer = await generate_answer(user_query, candidates, merged_filter)
+    answer = None
+    llm_sec = 0.0
+    if with_llm:
+        # Stage 3: LLM Generation (Slice to top 8)
+        llm_candidates = candidates[:llm_top_n]
+        t_llm_start = time.time()
+        answer = await generate_answer(user_query, llm_candidates, merged_filter)
+        llm_sec = time.time() - t_llm_start
+    else:
+        answer = {
+            "answer": "",
+            "filters_applied": merged_filter,
+            "top_matches": []
+        }
 
     return {
         "query": user_query,
@@ -395,6 +432,10 @@ async def rag_search_async(user_query: str, use_planner: bool = True) -> Dict[st
         "rerank_top_n": rerank_top_n,
         "results": candidates,
         "answer": answer,
+        "latency_sec": time.time() - start_time,
+        "retrieval_sec": retrieval_sec,
+        "rerank_sec": rerank_sec,
+        "llm_sec": llm_sec
     }
 
 

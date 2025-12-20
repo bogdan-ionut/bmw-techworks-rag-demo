@@ -1,42 +1,18 @@
-# app/api/routes.py
 from __future__ import annotations
 
-import ast
 import json
 import logging
-import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, Field
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
-
-try:
-    from langchain_google_genai import ChatGoogleGenerativeAI
-except Exception:
-    ChatGoogleGenerativeAI = None
-
-from app.rag.prompt import (
-    ANSWER_SYSTEM_PROMPT,
-    PLANNER_SYSTEM_PROMPT,
-    format_candidates_for_prompt,
-    sanitize_filter,
-)
-from app.rag.rerank import rerank_candidates
-from app.rag.service import _classify_query_complexity
+from app.rag.service import rag_search_async
+from app.rag.prompt import CITY_NORMALIZATION_MAP
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-# Make the UI bulletproof even if the LLM fails/truncates
-DEFAULT_FALLBACK_TOP_N = 5
-# Keep completion budgets large enough to avoid truncation (e.g., long URLs in top_matches)
-SAFE_MIN_LLM_MAX_TOKENS = 1200
-
 
 # -----------------------------
 # DTO
@@ -48,761 +24,78 @@ class QueryBody(BaseModel):
     filters: Optional[Dict[str, Any]] = None  # optional explicit pinecone filter
     llm_provider: Optional[str] = None
     llm_model: Optional[str] = None
-    sources: Optional[List[Dict[str, Any]]] = None  # To re-use retrieved sources for a pure LLM call
+    sources: Optional[List[Dict[str, Any]]] = None  # To re-use retrieved sources (not used in new async flow yet)
     planner: bool = True  # Use LLM query planner
 
 
 # -----------------------------
-# Cache helpers
+# Helpers
 # -----------------------------
-def _cache_get(
-    cache: Dict[Tuple[Any, ...], Dict[str, Any]],
-    key: Tuple[Any, ...],
-    ttl_sec: int,
-) -> Optional[Dict[str, Any]]:
-    entry = cache.get(key)
-    if not entry:
-        return None
-    if (time.time() - entry["t"]) > ttl_sec:
-        cache.pop(key, None)
-        return None
-    return entry["v"]
+def _format_source(cand: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Map rag_search_async candidate (metadata) to API source format.
+    """
+    md = cand.get("metadata") or {}
 
-
-def _cache_set(
-    cache: Dict[Tuple[Any, ...], Dict[str, Any]],
-    key: Tuple[Any, ...],
-    value: Dict[str, Any],
-) -> None:
-    cache[key] = {"t": time.time(), "v": value}
-
-
-# -----------------------------
-# LLM usage helpers
-# -----------------------------
-def _extract_llm_usage(resp: Any) -> Tuple[int, int, int, Optional[str]]:
-    meta = getattr(resp, "response_metadata", {}) or {}
-    usage = meta.get("token_usage") or meta.get("usage_metadata") or {}
-
-    # OpenAI style
-    prompt_tokens = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
-    completion_tokens = usage.get("completion_tokens") or usage.get("output_tokens") or 0
-    total_tokens = usage.get("total_tokens") or 0
-
-    # Gemini 2.5/3 style (fallback/specific keys)
-    prompt_tokens = usage.get("prompt_token_count") or prompt_tokens
-    completion_tokens = usage.get("candidates_token_count") or completion_tokens
-    total_tokens = usage.get("total_token_count") or total_tokens
-
-    prompt_tokens = int(prompt_tokens or 0)
-    completion_tokens = int(completion_tokens or 0)
-    total_tokens = int(total_tokens or (prompt_tokens + completion_tokens))
-
-    model_name = (
-        meta.get("model_name")
-        or meta.get("model")
-        or usage.get("model")
-        or usage.get("model_name")
+    # Handle image url mapping
+    image_url = (
+        md.get("profile_image_s3_url")
+        or md.get("profile_image_url")
+        or md.get("image_url")
+        or None
     )
-
-    # If usage is empty, check if we can get it from another place or log warning
-    if total_tokens == 0:
-         logger.warning(
-             "LLM usage extraction failed (0 tokens). Check provider response format.",
-             extra={"response_keys": list(vars(resp).keys()) if hasattr(resp, "__dict__") else [], "meta_keys": list(meta.keys())}
-         )
-
-    return prompt_tokens, completion_tokens, total_tokens, model_name
-
-
-def _resolve_llm_choice(settings, body: QueryBody) -> Tuple[str, str]:
-    provider = (body.llm_provider or settings.llm_provider or "").strip().upper()
-    if provider not in {"OPENAI", "GEMINI"}:
-        raise HTTPException(status_code=400, detail="Invalid llm_provider. Use OPENAI or GEMINI.")
-
-    if provider == "OPENAI":
-        model = (body.llm_model or settings.openai_model or "").strip()
-    else:
-        model = (body.llm_model or settings.gemini_model or "").strip()
-
-    if not model:
-        raise HTTPException(status_code=400, detail="Missing llm_model for selected provider.")
-
-    return provider, model
-
-
-def _get_llm_client(request: Request, provider: str, model: str):
-    settings = request.app.state.settings
-    cache = getattr(request.app.state, "llm_cache", {}) or {}
-    key = (provider, model, settings.temperature, settings.max_tokens)
-
-    if key in cache:
-        return cache[key]
-
-    if provider == "GEMINI":
-        if ChatGoogleGenerativeAI is None:
-            raise HTTPException(status_code=400, detail="Gemini requested but not installed.")
-        if not settings.google_api_key:
-            raise HTTPException(status_code=400, detail="GOOGLE_API_KEY is required for Gemini.")
-
-        llm = ChatGoogleGenerativeAI(
-            api_key=settings.google_api_key,
-            model=model,
-            temperature=settings.temperature,
-            response_mime_type="application/json",  # Gemini 2.5/3 reliably returns JSON
-        )
-    else:
-        if not settings.openai_api_key:
-            raise HTTPException(status_code=400, detail="OPENAI_API_KEY is required for OpenAI models.")
-        try:
-            llm = ChatOpenAI(
-                api_key=settings.openai_api_key,
-                model=model,
-                temperature=settings.temperature,
-                max_tokens=settings.max_tokens,
-                response_format={"type": "json_object"},
-            )
-        except TypeError:
-            # Fallback for older client versions that do not support response_format
-            llm = ChatOpenAI(
-                api_key=settings.openai_api_key,
-                model=model,
-                temperature=settings.temperature,
-                max_tokens=settings.max_tokens,
-            )
-
-    cache[key] = llm
-    request.app.state.llm_cache = cache
-    return llm
-
-
-# -----------------------------
-# JSON safety
-# -----------------------------
-def _coerce_llm_text(x: Any) -> str:
-    """
-    LangChain providers sometimes return content as:
-    - str (OpenAI)
-    - list[dict|str] (Gemini / multimodal parts)
-    - dict (rare)
-    Convert safely to a plain string.
-    """
-    if x is None:
-        return ""
-    if isinstance(x, str):
-        return x
-    if isinstance(x, bytes):
-        try:
-            return x.decode("utf-8", errors="ignore")
-        except Exception:
-            return str(x)
-
-    # Gemini sometimes returns list of parts
-    if isinstance(x, list):
-        parts: List[str] = []
-        for it in x:
-            if it is None:
-                continue
-            if isinstance(it, str):
-                parts.append(it)
-                continue
-            if isinstance(it, dict):
-                if "text" in it:
-                    parts.append(str(it.get("text") or ""))
-                elif "content" in it:
-                    parts.append(str(it.get("content") or ""))
-                else:
-                    parts.append(json.dumps(it, ensure_ascii=False))
-                continue
-            parts.append(str(it))
-        return "\n".join([p for p in parts if p]).strip()
-
-    if isinstance(x, dict):
-        # Gemini 3 responses may include nested candidates/parts
-        if "candidates" in x:
-            parts: List[str] = []
-            for cand in x.get("candidates") or []:
-                content = cand.get("content") or {}
-                parts.extend(
-                    [p.get("text") or "" for p in content.get("parts", []) if isinstance(p, dict)]
-                )
-            flat = "\n".join([p for p in parts if p]).strip()
-            if flat:
-                return flat
-
-        if "text" in x:
-            return str(x.get("text") or "")
-
-        return json.dumps(x, ensure_ascii=False)
-
-    return str(x)
-
-
-def _safe_json_loads(s: Any) -> Dict[str, Any]:
-    """
-    Tries to parse model output as JSON.
-    If it contains extra text, tries to extract the outermost {...}.
-    Accepts str/list/dict and coerces safely to string first.
-    """
-    s = _coerce_llm_text(s).strip()
-
-    def _parse_obj(text: str) -> Optional[Dict[str, Any]]:
-        try:
-            obj = json.loads(text)
-        except Exception:
-            try:
-                obj = ast.literal_eval(text)
-            except Exception:
-                return None
-
-        return obj if isinstance(obj, dict) else None
-
-    # Strip common Markdown fences often returned by models
-    fenced = re.search(r"```(?:json)?\s*(.*?)```", s, flags=re.DOTALL)
-    if fenced:
-        s = fenced.group(1).strip()
-
-    obj = _parse_obj(s)
-    if obj is not None:
-        return obj
-
-    start = s.find("{")
-    end = s.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        obj = _parse_obj(s[start : end + 1])
-        if obj is not None:
-            return obj
-        raise ValueError("Extracted JSON is not an object.")
-
-    raise ValueError("Could not parse JSON from model output.")
-
-
-def _safe_stringify_for_log(val: Any, limit: int = 6000) -> str:
-    """Convert arbitrary objects to a loggable string with truncation."""
-
-    def default(o: Any) -> Any:
-        if isinstance(o, (bytes, bytearray)):
-            return o.decode("utf-8", errors="ignore")
-        if hasattr(o, "__dict__"):
-            try:
-                return {k: v for k, v in vars(o).items() if not k.startswith("_")}
-            except Exception:
-                return str(o)
-        return str(o)
-
-    try:
-        text = json.dumps(val, default=default, ensure_ascii=False)
-    except Exception:
-        try:
-            text = str(val)
-        except Exception:
-            text = repr(val)
-
-    if len(text) > limit:
-        return text[:limit] + f"… (truncated {len(text)} chars)"
-    return text
-
-
-def _log_llm_raw_output(resp: Any, raw: str, provider: str, model: Optional[str]) -> None:
-    """Log the LLM raw response content in a structured way for debugging."""
-
-    try:
-        content = getattr(resp, "content", None)
-        snippet = raw if len(raw) <= 1500 else (raw[:1500] + "…")
-        meta = getattr(resp, "response_metadata", None)
-
-        response_debug = {
-            "resp_type": type(resp).__name__,
-            "content_type": type(content).__name__ if content is not None else None,
-            "raw_len": len(raw),
-            "content_preview": _safe_stringify_for_log(content, limit=3000),
-            "response_metadata": meta,
-            "resp_dict_keys": sorted(list(getattr(resp, "__dict__", {}).keys())),
-        }
-        response_dump = _safe_stringify_for_log(response_debug, limit=8000)
-
-        logger.info(
-            "LLM raw output: %s",
-            snippet,
-            extra={
-                "llm_provider": provider,
-                "llm_model": model,
-                "llm_raw_snippet": snippet,
-                "llm_content_type": type(content or resp).__name__,
-                "llm_response_metadata": meta,
-                "llm_response_dump": response_dump,
-            },
-        )
-    except Exception:
-        logger.debug("Failed to log LLM raw output", exc_info=True)
-
-
-# -----------------------------
-# Query planner (LLM-based filter extraction)
-# -----------------------------
-def _run_query_planner(
-    request: Request,
-    query: str,
-    provider: str,
-    model: str,
-) -> Dict[str, Any]:
-    """
-    Uses an LLM to decompose a natural language query into:
-    - a structured metadata filter
-    - a clean semantic query for vector search
-    """
-    llm = _get_llm_client(request, provider, model)
-    try:
-        resp = llm.invoke(
-            [
-                SystemMessage(content=PLANNER_SYSTEM_PROMPT),
-                HumanMessage(content=f"User query: \"\"\"{query}\"\"\""),
-            ]
-        )
-        raw = _coerce_llm_text(getattr(resp, "content", resp) or "")
-        _log_llm_raw_output(resp, raw, provider, model)
-        parsed = _safe_json_loads(raw)
-
-        logger.info(
-            "Query planner ran successfully",
-            extra={
-                "query": query,
-                "llm_provider": provider,
-                "llm_model": model,
-                "planner_output": parsed,
-            },
-        )
-        return parsed
-
-    except Exception as e:
-        logger.exception(
-            "Query planner failed",
-            extra={"query": query, "llm_provider": provider, "llm_model": model, "error": str(e)},
-        )
-        # Fallback to pure semantic search on failure
-        return {"semantic_query": query, "filter": None}
-
-
-# -----------------------------
-# Utils
-# -----------------------------
-def _normalize_filter_values(flt: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """
-    Recursively force specific filter values (like name_tokens) to lowercase
-    to match the ingestion normalization logic.
-    """
-    if not flt or not isinstance(flt, dict):
-        return flt
-
-    # 1. Normalizează name_tokens (pentru că ingestion-ul le face lowercase)
-    if "name_tokens" in flt:
-        cond = flt["name_tokens"]
-        if isinstance(cond, dict):
-            # Cazul {$in: ["Ionut"]} -> {$in: ["ionut"]}
-            if "$in" in cond and isinstance(cond["$in"], list):
-                cond["$in"] = [str(x).lower() for x in cond["$in"]]
-            # Cazul {$eq: "Ionut"} -> {$eq: "ionut"}
-            if "$eq" in cond and isinstance(cond["$eq"], str):
-                cond["$eq"] = cond["$eq"].lower()
-
-    # 2. Normalizează location_normalized
-    if "location_normalized" in flt:
-        cond = flt["location_normalized"]
-        if isinstance(cond, dict):
-            if "$eq" in cond and isinstance(cond["$eq"], str):
-                cond["$eq"] = cond["$eq"].lower()
-
-    # 3. Mergi recursiv pentru structuri complexe ($and, $or)
-    for k, v in flt.items():
-        if k in ("$and", "$or") and isinstance(v, list):
-            for item in v:
-                _normalize_filter_values(item)
-
-    return flt
-
-
-def _normalize_linkedin(url: Optional[str]) -> str:
-    if not url:
-        return ""
-    clean = str(url).strip().split("?")[0].split("#")[0].rstrip("/")
-    try:
-        parsed = urlparse(clean)
-        host = (parsed.netloc or "").lower()
-        if host.endswith("linkedin.com"):
-            host = "linkedin.com"
-        path = parsed.path or ""
-        if path.startswith("/in/"):
-            slug = path[len("/in/") :].rstrip("/").lower()
-        else:
-            slug = path.lstrip("/").rstrip("/").lower()
-        return f"https://{host}/in/{slug}" if slug else ""
-    except Exception:
-        return clean.lower()
-
-
-def _source_id(s: Dict[str, Any]) -> str:
-    return (
-        str(s.get("vmid") or "").strip()
-        or _normalize_linkedin(s.get("profile_url"))
-        or str(s.get("id") or "").strip()
-        or str(s.get("full_name") or "").strip().lower()
-    )
-
-
-def _looks_like_short_search(query: str) -> bool:
-    q = query.strip()
-    return len(q) <= 22 and "?" not in q
-
-
-def _source_to_llm_text(s: Dict[str, Any]) -> str:
-    """
-    Creates a concise, structured summary for LLM analysis to save tokens.
-    Excludes the heavy embedding_text.
-    """
-    parts = []
-
-    # Role & Company
-    role = s.get('job_title') or ""
-    company = s.get('company') or ""
-    if role or company:
-        parts.append(f"Current: {role} at {company}".strip())
-
-    # Previous
-    prev_role = s.get('job_title_2') or ""
-    if prev_role:
-        parts.append(f"Previous: {prev_role}")
-
-    # Skills (critical)
-    skills = s.get('tech_tokens') or []
-    if skills:
-        # Limit to top 25 skills to save tokens but keep context
-        skill_str = ", ".join(str(x) for x in skills[:25])
-        parts.append(f"Skills: {skill_str}")
-
-    # Education
-    school = s.get('school') or ""
-    degree = s.get('school_degree') or ""
-    if school or degree:
-        parts.append(f"Education: {degree} from {school}".strip())
-
-    # Location & Meta
-    loc = s.get('location') or ""
-    if loc:
-        parts.append(f"Loc: {loc}")
-
-    exp = s.get('minimum_estimated_years_of_exp')
-    if exp:
-        parts.append(f"Exp: {exp} yrs")
-
-    return "\n".join(parts)
-
-
-def _source_to_text(s: Dict[str, Any]) -> str:
-    # Prefer embedding_text if present (best semantic)
-    emb = (s.get("embedding_text") or "").strip()
-    if emb:
-        return emb
-    parts = [
-        f"Employee: {s.get('full_name') or 'N/A'}",
-        f"Headline: {s.get('headline') or 'N/A'}",
-        f"Current role: {s.get('job_title') or 'N/A'} ({s.get('job_date_range') or ''})",
-        f"Previous role: {s.get('job_title_2') or 'N/A'} ({s.get('job_date_range_2') or ''})",
-        f"Location: {s.get('location') or 'N/A'}",
-        f"Education 1: {s.get('school') or ''} – {s.get('school_degree') or ''} – {s.get('school_date_range') or ''}",
-        f"Education 2: {s.get('school_2') or ''} – {s.get('school_degree_2') or ''} – {s.get('school_date_range_2') or ''}",
-        f"LinkedIn: {s.get('profile_url') or ''}",
-        f"VMID: {s.get('vmid') or ''}",
-        f"Eyewear present: {s.get('eyewear_present')}",
-        f"Beard present: {s.get('beard_present')}",
-    ]
-    return "\n".join([p for p in parts if p.strip()]).strip()
-
-
-def _build_top_matches_from_sources(
-    sources: List[Dict[str, Any]],
-    top_n: int,
-    *,
-    why: str,
-) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    for s0 in (sources or [])[: max(0, top_n)]:
-        out.append(
-            {
-                "id": s0.get("id"),
-                "full_name": s0.get("full_name") or "",
-                "profile_url": s0.get("profile_url") or "",
-                "image_url": s0.get("profile_image_url") or None,
-                "score": s0.get("score"),
-                "why_match": why,
-            }
-        )
-    return out
-
-
-def _fallback_answer_obj(
-    query: str,
-    flt: Optional[Dict[str, Any]],
-    sources: List[Dict[str, Any]],
-    *,
-    top_n: int,
-    reason: str,
-    raw: Optional[str] = None,
-) -> Dict[str, Any]:
-    fallback_top = (sources or [])[: max(0, top_n)]
-    names = [s.get("full_name") or "N/A" for s in fallback_top]
-    base = f"Top matches for '{query}' ({reason}): " + (", ".join(names) if names else "No matches.")
-    if raw:
-        # keep it short (UI-friendly)
-        raw_snip = _coerce_llm_text(raw).strip().replace("\n", " ")
-        if len(raw_snip) > 240:
-            raw_snip = raw_snip[:240] + "..."
-        base = base + f"\n\n(LLM output was invalid/truncated.)"
 
     return {
-        "answer": base,
-        "filters_applied": flt,
-        "top_matches": _build_top_matches_from_sources(
-            sources,
-            top_n,
-            why="Retrieved match (LLM output invalid/truncated).",
-        ),
+        "id": md.get("id") or cand.get("id"),
+        "score": cand.get("score"),
+        "vmid": md.get("vmid"),
+        "full_name": md.get("full_name"),
+        "profile_url": md.get("profile_url"),
+        "profile_image_url": image_url,
+        "headline": md.get("headline"),
+        "location": md.get("location"),
+        "job_title": md.get("job_title"),
+        "job_date_range": md.get("job_date_range"),
+        "job_title_2": md.get("job_title_2"),
+        "job_date_range_2": md.get("job_date_range_2"),
+        "school": md.get("school"),
+        "school_degree": md.get("school_degree"),
+        "school_date_range": md.get("school_date_range"),
+        "school_2": md.get("school_2"),
+        "school_degree_2": md.get("school_degree_2"),
+        "school_date_range_2": md.get("school_date_range_2"),
+        # filters
+        "eyewear_present": md.get("eyewear_present"),
+        "beard_present": md.get("beard_present"),
+        # new fields for LLM
+        "company": md.get("company"),
+        "tech_tokens": md.get("tech_tokens"),
+        "minimum_estimated_years_of_exp": md.get("minimum_estimated_years_of_exp"),
+        # best context
+        "embedding_text": md.get("embedding_text") or "",
     }
 
 
-def _answer_from_unstructured_raw(
-    raw: Any,
-    query: str,
-    flt: Optional[Dict[str, Any]],
-    sources: List[Dict[str, Any]],
-    *,
-    top_n: int,
-) -> Optional[Dict[str, Any]]:
+def _hydrate_answer_matches(answer: Dict[str, Any], sources_map: Dict[str, Any]) -> None:
     """
-    Build a best-effort answer object when the LLM returns plain text instead of JSON.
-
-    This prevents the UI from surfacing a scary "invalid/unstructured" message when
-    we still have a meaningful answer string we can show to the user.
+    Fill in missing details in answer['top_matches'] using the full source data.
     """
+    top_matches = answer.get("top_matches") or []
 
-    text = _coerce_llm_text(raw).strip()
-    if not text:
-        return None
+    for m in top_matches:
+        mid = m.get("id")
+        if mid and mid in sources_map:
+            s = sources_map[mid]
+            if not m.get("full_name"):
+                m["full_name"] = s.get("full_name") or ""
+            if not m.get("profile_url"):
+                m["profile_url"] = s.get("profile_url") or ""
+            if not m.get("image_url"):
+                m["image_url"] = s.get("profile_image_url") or None
 
-    return {
-        "answer": text,
-        "filters_applied": flt,
-        "top_matches": _build_top_matches_from_sources(
-            sources,
-            top_n,
-            why="Retrieved match (LLM output unstructured).",
-        ),
-    }
-
-
-def _coerce_answer_obj(
-    query: str,
-    flt: Optional[Dict[str, Any]],
-    sources: List[Dict[str, Any]],
-    answer_obj: Any,
-    *,
-    top_n: int,
-) -> Dict[str, Any]:
-    """
-    Ensure the final answer object always matches the expected schema and
-    top_matches is never empty (unless there are no sources).
-    """
-    if not isinstance(answer_obj, dict):
-        return _fallback_answer_obj(query, flt, sources, top_n=top_n, reason="fallback")
-
-    # Ensure required keys exist
-    # If the model returned "summary" instead of "answer", rename it for consistency
-    if "summary" in answer_obj and "answer" not in answer_obj:
-        answer_obj["answer"] = answer_obj.pop("summary")
-
-    if "answer" not in answer_obj or not str(answer_obj.get("answer") or "").strip():
-        fallback = _fallback_answer_obj(
-            query=query,
-            flt=flt,
-            sources=sources,
-            top_n=top_n,
-            reason="LLM returned an empty answer",
-        )
-        answer_obj["answer"] = fallback["answer"]
-        answer_obj.setdefault("top_matches", fallback.get("top_matches", []))
-    if "filters_applied" not in answer_obj:
-        answer_obj["filters_applied"] = flt
-    if "top_matches" not in answer_obj or not isinstance(answer_obj.get("top_matches"), list):
-        answer_obj["top_matches"] = []
-
-    # Cap top_matches
-    answer_obj["top_matches"] = answer_obj["top_matches"][: max(0, top_n)]
-
-    # If empty, fill with fallback from sources
-    if not answer_obj["top_matches"] and (sources or []):
-        answer_obj["top_matches"] = _build_top_matches_from_sources(
-            sources,
-            top_n,
-            why="Retrieved match (LLM did not return structured matches).",
-        )
-
-    return answer_obj
-
-
-# -----------------------------
-# Pinecone search (semantic) with optional metadata filter
-# -----------------------------
-def _pinecone_query(
-    request: Request,
-    query: str,
-    top_k: int,
-    flt: Optional[Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], int, float]:
-    """
-    Returns: (sources, matches_count, embedding_time_sec)
-    """
-    embeddings = request.app.state.embeddings
-    index = request.app.state.pinecone_index
-    namespace = request.app.state.settings.pinecone_namespace
-
-    t_embed_start = time.time()
-    vec = embeddings.embed_query(query)
-    t_embed_end = time.time()
-
-    # Log if embedding is slow (likely cause of "exploded" pinecone time)
-    embed_sec = t_embed_end - t_embed_start
-    if embed_sec > 1.0:
-        logger.warning(
-            "Slow embedding generation",
-            extra={"query": query, "embedding_sec": embed_sec, "model": getattr(embeddings, "model", "unknown")}
-        )
-
-    res = index.query(
-        vector=vec,
-        top_k=top_k,
-        include_metadata=True,
-        namespace=namespace,
-        filter=flt,
-    )
-
-    matches = res.get("matches") if isinstance(res, dict) else getattr(res, "matches", []) or []
-    sources: List[Dict[str, Any]] = []
-
-    for m in matches:
-        if isinstance(m, dict):
-            md = m.get("metadata") or {}
-            mid = m.get("id")
-            score = m.get("score")
-        else:
-            md = getattr(m, "metadata", {}) or {}
-            mid = getattr(m, "id", None)
-            score = getattr(m, "score", None)
-
-        if mid and not md.get("id"):
-            md["id"] = mid
-
-        # IMPORTANT: ingestion uses profile_image_s3_url, not profile_image_url
-        image_url = (
-            md.get("profile_image_s3_url")
-            or md.get("profile_image_url")
-            or md.get("image_url")
-            or None
-        )
-
-        sources.append(
-            {
-                "id": md.get("id"),
-                "score": score,
-                "vmid": md.get("vmid"),
-                "full_name": md.get("full_name"),
-                "profile_url": md.get("profile_url"),
-                "profile_image_url": image_url,
-                "headline": md.get("headline"),
-                "location": md.get("location"),
-                "job_title": md.get("job_title"),
-                "job_date_range": md.get("job_date_range"),
-                "job_title_2": md.get("job_title_2"),
-                "job_date_range_2": md.get("job_date_range_2"),
-                "school": md.get("school"),
-                "school_degree": md.get("school_degree"),
-                "school_date_range": md.get("school_date_range"),
-                "school_2": md.get("school_2"),
-                "school_degree_2": md.get("school_degree_2"),
-                "school_date_range_2": md.get("school_date_range_2"),
-                # filters
-                "eyewear_present": md.get("eyewear_present"),
-                "beard_present": md.get("beard_present"),
-                # new fields for LLM
-                "company": md.get("company"),
-                "tech_tokens": md.get("tech_tokens"),
-                "minimum_estimated_years_of_exp": md.get("minimum_estimated_years_of_exp"),
-                # best context (already built in ingestion)
-                "embedding_text": md.get("embedding_text") or "",
-            }
-        )
-
-    return sources, len(matches), embed_sec
-
-
-# -----------------------------
-# Cohere rerank (top_k -> top_n), reorder cards
-# -----------------------------
-def _cohere_rerank_sources(
-    request: Request,
-    query: str,
-    sources: List[Dict[str, Any]],
-    dynamic_top_n: Optional[int] = None,
-) -> List[Dict[str, Any]]:
-    # Use the dynamic rerank helper
-    settings = request.app.state.settings
-    if not settings.cohere_api_key:
-        return sources
-
-    # Check if global instance check passed
-    # but use a fresh instance/call for dynamic top_n
-
-    # Defaults
-    top_n = dynamic_top_n if dynamic_top_n is not None else settings.cohere_rerank_top_n
-
-    # Prepare candidates in format expected by rerank_candidates (requires 'text' key)
-    # But wait, rerank_candidates expects `text` field in dict.
-    # _source_to_text(s) creates the text.
-    candidates = []
-    for s in sources:
-        # We need to preserve the original source dict, but rerank_candidates returns metadata.
-        # rerank_candidates implementation:
-        # docs = [Document(page_content=str(c.get("text") or ""), metadata=c) ...]
-        # out = [d.metadata for d in reranked_docs]
-        # So we can pass the source as metadata.
-        # But rerank_candidates looks for 'text' in the candidate dict to build page_content.
-        c = dict(s)
-        c["text"] = _source_to_text(s)
-        candidates.append(c)
-
-    reranked = rerank_candidates(
-        query=query,
-        candidates=candidates,
-        cohere_api_key=settings.cohere_api_key,
-        model=settings.cohere_rerank_model,
-        top_n=top_n,
-    )
-
-    # Restore the "append rest" logic to avoid truncation if reranking subset
-    # This was present in the original implementation to ensure we still return k items
-    # even if we only reranked top N.
-
-    # reranked contains the top N reranked items.
-    top_ids = {_source_id(s) for s in reranked}
-
-    # Identify items that were not in the top N reranked list
-    # but were in the original sources
-    rest = [s for s in sources if _source_id(s) and _source_id(s) not in top_ids]
-
-    # Remove 'text' field if it was added just for reranking in the top list
-    for r in reranked:
-        if "text" in r and "text" not in sources[0]: # heuristic check
-            r.pop("text", None)
-
-    return reranked + rest
+            # Inject reasoning back into source
+            if m.get("why_match"):
+                s["reasoning"] = m.get("why_match")
 
 
 # -----------------------------
@@ -813,34 +106,19 @@ def health() -> Dict[str, Any]:
     return {"ok": True}
 
 
-def _merge_filters(
-    a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]
-) -> Optional[Dict[str, Any]]:
-    if not a and not b:
-        return None
-    if a and not b:
-        return a
-    if b and not a:
-        return b
-    return {"$and": [a, b]}
-
-
 @router.get("/search")
-def search_endpoint(
+async def search_endpoint(
     request: Request,
     q: str = Query(..., min_length=1),
-    k: int = Query(24, ge=1, le=32),
+    k: int = Query(24, ge=1, le=100),
     filters: Optional[str] = Query(None, description="Optional JSON string Pinecone filter"),
     planner: bool = Query(True, description="Use LLM query planner"),
 ) -> Dict[str, Any]:
-    s = request.app.state.settings
-    cache = request.app.state.cache
-    ttl = int(s.cache_ttl_sec)
-    selected_provider, selected_model = _resolve_llm_choice(s, QueryBody(query=q))
-
-    query = q.strip()
-    start = time.time()
-
+    """
+    Async search endpoint using Two-Stage Retrieval via rag_search_async.
+    Stage 1: Retrieve 60 (default in service)
+    Stage 2: Rerank 15 (default in service)
+    """
     explicit_filter = None
     if filters:
         try:
@@ -848,388 +126,105 @@ def search_endpoint(
         except Exception:
             explicit_filter = None
 
-    # Optimization: Skip planner for simple queries to reduce latency
-    if planner and _classify_query_complexity(query) == "SIMPLE":
-        planner = False
+    # Call async service
+    # Note: k from query is treated as retrieval target if explicit,
+    # but rag_search_async defaults to 60 for retrieval.
+    # If the user asks for k=100, we should probably respect it for top_k.
+    # But usually k in UI means "how many results to show".
+    # For now, we'll map k to top_k if it's larger than default 60, otherwise stick to 60?
+    # Actually, the task says "Stage 1: top_k=60". So we should enforce that default logic
+    # unless specifically overridden logic is needed.
+    # We will pass k as top_k ONLY if it is larger than 60, otherwise let service use 60.
+    # However, k is often used for pagination size or result limit.
+    # rag_search_async returns 'results' (reranked list).
 
-    if planner:
-        planned = _run_query_planner(request, query, selected_provider, selected_model)
-        semantic_query = planned.get("semantic_query") or query
-        inferred_filter = _normalize_filter_values(sanitize_filter(planned.get("filter")))
-    else:
-        semantic_query = query
-        inferred_filter = None
+    search_top_k = max(60, k)
 
-    flt = _merge_filters(explicit_filter, inferred_filter)
-
-    cache_key = (
-        "search",
-        query.lower(),
-        int(k),
-        s.embed_model,
-        s.pinecone_index_name,
-        json.dumps(flt, sort_keys=True) if flt else None,
+    result = await rag_search_async(
+        user_query=q,
+        explicit_filter=explicit_filter,
+        top_k=search_top_k,
+        rerank_top_n=15, # Fixed as per instructions
+        use_planner=planner,
+        with_llm=False
     )
-    cached = _cache_get(cache, cache_key, ttl)
-    if cached:
-        return cached
 
-    t0 = time.time()
-    sources, retrieved_docs, embed_sec = _pinecone_query(request, semantic_query, top_k=int(k), flt=flt)
-    t1 = time.time()
+    # Format sources
+    candidates = result.get("results", [])
+    sources = [_format_source(c) for c in candidates]
 
-    rerank_sec = 0.0
-    if bool(s.rerank_in_search):
-        rerank_start = time.time()
-        # Dynamic Rerank Logic:
-        # If retrieved count is small, adapt top_n.
-        # k is the requested retrieval count.
-        # sources is the actual retrieved count.
+    # Ensure we return the requested number of items if available (although we reranked 15)
+    # If k > 15, we might want to append non-reranked items?
+    # The instructions for Two-Stage Retrieval say:
+    # "Stage 2 (Cohere): Setează top_n (rerank) la 10-15."
+    # This implies we only return 15 high quality results.
+    # The previous implementation appended the rest.
+    # If the UI expects k=24, returning 15 might be fine if quality is higher.
+    # We will return what rag_search_async returns.
 
-        # We can pass k, or just rely on len(sources).
-        # rerank_candidates handles min(len(sources), top_n) internally.
-        # But we can also cap it here by configuration if needed.
-
-        # Just pass defaults, let rerank_candidates handle logic.
-        sources = _cohere_rerank_sources(request, query, sources, dynamic_top_n=s.cohere_rerank_top_n)
-
-        rerank_end = time.time()
-        rerank_sec = round(rerank_end - rerank_start, 2)
-
-    result = {
+    return {
         "sources": sources,
-        "retrieved_docs": retrieved_docs,
+        "retrieved_docs": len(candidates), # This might be total retrieved or after rerank? Service returns reranked list in 'results'.
         "unique_sources": len(sources),
-        "k": int(k),
-        "filters_applied": flt,
-        "latency_sec": round(time.time() - start, 2),
-        "retrieval_sec": round(t1 - t0, 2),
-        "rerank_sec": rerank_sec,
+        "k": k,
+        "filters_applied": result.get("filters_applied"),
+        "latency_sec": result.get("latency_sec"),
+        "retrieval_sec": result.get("retrieval_sec"),
+        "rerank_sec": result.get("rerank_sec"),
     }
-    _cache_set(cache, cache_key, result)
-    return result
 
 
 @router.post("/query")
-def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
-    s = request.app.state.settings
-    cache = request.app.state.cache
-    ttl = int(s.cache_ttl_sec)
+async def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
+    """
+    Async RAG endpoint.
+    Stage 3: LLM Generation (Top 8).
+    """
+    # Defaults from instruction
+    retrieval_top_k = 60
+    rerank_top_n = 15
+    llm_top_n = 8
 
-    query = body.query.strip()
-    with_llm = bool(body.with_llm)
-    selected_provider, selected_model = _resolve_llm_choice(s, body)
+    if body.k and body.k > 60:
+        retrieval_top_k = body.k
 
-    k = int(body.k or s.search_top_k)
-    k = max(1, min(32, k))
-
-    start = time.time()
-
-    use_planner = body.planner
-    # Optimization: Skip planner for simple queries
-    if use_planner and _classify_query_complexity(query) == "SIMPLE":
-        use_planner = False
-
-    if use_planner:
-        planned = _run_query_planner(request, query, selected_provider, selected_model)
-        semantic_query = planned.get("semantic_query") or query
-        inferred_filter = _normalize_filter_values(sanitize_filter(planned.get("filter")))
-    else:
-        semantic_query = query
-        inferred_filter = None
-
-    flt = _merge_filters(body.filters, inferred_filter)
-
-    embed_sec = 0.0
-
-    # 1) retrieve + rerank (if sources are not passed in)
-    if body.sources and len(body.sources) > 0:
-        sources = body.sources
-        retrieved_docs = len(sources)
-        t0 = t1 = rerank_start = rerank_end = time.time()
-        rerank_sec = 0.0
-    else:
-        t0 = time.time()
-        sources, retrieved_docs, embed_sec = _pinecone_query(request, semantic_query, top_k=k, flt=flt)
-        t1 = time.time()
-
-        rerank_start = time.time()
-        # Use dynamic rerank
-        sources = _cohere_rerank_sources(request, semantic_query, sources, dynamic_top_n=s.cohere_rerank_top_n)
-        rerank_end = time.time()
-        rerank_sec = round(rerank_end - rerank_start, 2)
-
-    # Effective top_matches count for UI/answer payload
-    top_n_cfg = int(getattr(s, "context_max_people", DEFAULT_FALLBACK_TOP_N) or DEFAULT_FALLBACK_TOP_N)
-    top_n = max(0, min(top_n_cfg, len(sources or [])))
-
-    # Build candidates for the answer prompt
-    # OPTIMIZATION: Only send the top_n most relevant profiles to the LLM to save tokens.
-    # The 'sources' list is already reranked, so taking the first 'top_n' gives the best matches.
-    candidates: List[Dict[str, Any]] = []
-    for s0 in sources[:top_n]:
-        candidates.append(
-            {
-                "id": s0.get("id"),
-                "score": s0.get("score"),
-                "text": _source_to_llm_text(s0),
-                "metadata": {
-                    "full_name": s0.get("full_name"),
-                    "profile_url": s0.get("profile_url"),
-                    "profile_image_s3_url": s0.get("profile_image_url"),  # prompt expects this key
-                },
-            }
-        )
-
-    # 3) skip LLM (optional) -> still return useful AI Insights payload
-    if not with_llm or (s.skip_llm_for_short and _looks_like_short_search(query)):
-        answer_obj = _fallback_answer_obj(
-            query=query,
-            flt=flt,
-            sources=sources,
-            top_n=top_n,
-            reason="LLM skipped",
-        )
-        return {
-            "answer": answer_obj,
-            "answer_text": str(answer_obj.get("answer") or ""),
-            "sources": sources,
-            "filters_applied": flt,
-            "llm_provider": selected_provider,
-            "llm_used": selected_provider,
-            "llm_model": selected_model or "SKIPPED",
-            "llm_fallback_reason": None,
-            "retrieved_docs": retrieved_docs,
-            "unique_sources": len(sources),
-            "k": k,
-            "latency_sec": round(time.time() - start, 2),
-            "retrieval_sec": round(t1 - t0, 2),
-            "pinecone_sec": round(t1 - t0, 2),
-            "rerank_sec": rerank_sec,
-            "llm_sec": 0.0,
-            "llm_prompt_tokens": 0,
-            "llm_completion_tokens": 0,
-            "llm_total_tokens": 0,
-        }
-
-    # 4) cache LLM answer (include filters)
-    cache_key = (
-        "rag",
-        query.lower(),
-        int(k),
-        json.dumps(flt, sort_keys=True) if flt else None,
-        selected_provider,
-        selected_model,
-        s.temperature,
-        s.max_tokens,
-        s.context_max_people,
-        s.cohere_rerank_top_n,
-    )
-    cached = _cache_get(cache, cache_key, ttl)
-    if cached:
-        cached = dict(cached)
-        cached["sources"] = sources
-        cached["retrieved_docs"] = retrieved_docs
-        cached["unique_sources"] = len(sources)
-        cached["k"] = k
-        cached["filters_applied"] = flt
-        cached["retrieval_sec"] = round(t1 - t0, 2)
-        cached["pinecone_sec"] = cached.get("pinecone_sec", round(t1 - t0, 2))
-        cached["rerank_sec"] = rerank_sec
-        cached["latency_sec"] = round(time.time() - start, 2)
-        cached.setdefault("llm_sec", 0.0)
-        cached.setdefault("llm_prompt_tokens", 0)
-        cached.setdefault("llm_completion_tokens", 0)
-        cached.setdefault("llm_total_tokens", 0)
-        cached.setdefault("llm_provider", selected_provider)
-        cached.setdefault("llm_model", selected_model)
-        cached.setdefault("llm_fallback_reason", None)
-        return cached
-
-    # 5) LLM -> JSON answer
-    llm = _get_llm_client(request, selected_provider, selected_model)
-    t2 = time.time()
-
-    user_msg = {
-        "query": query,
-        "filters_applied": flt,
-        "candidates_text": format_candidates_for_prompt(candidates),
-    }
-
-    # Make output robust:
-    # - enforce JSON output (OpenAI JSON mode when available)
-    # - avoid truncation by using a safer max_tokens floor
-    effective_max_tokens = max(int(getattr(s, "max_tokens", 0) or 0), SAFE_MIN_LLM_MAX_TOKENS)
-
-    llm_call = llm
-    fallback_reason: Optional[str] = None
-    if selected_provider == "GEMINI":
-        try:
-            # Gemini uses max_output_tokens and rejects unknown fields
-            llm_call = llm_call.bind(max_output_tokens=effective_max_tokens)
-        except Exception:
-            pass
-        # Do NOT pass response_format to Gemini (raises validation errors)
-    else:
-        try:
-            llm_call = llm_call.bind(max_tokens=effective_max_tokens)
-        except Exception:
-            pass
-
-        try:
-            # Works for OpenAI ChatCompletions JSON mode in langchain (ignored by non-OpenAI providers)
-            llm_call = llm_call.bind(response_format={"type": "json_object"})
-        except Exception:
-            pass
-
-    # REDUCE OUTPUT TOKENS TO IMPROVE LATENCY
-    tight_system = (
-        ANSWER_SYSTEM_PROMPT
-        + "\n\nHard constraints:\n"
-        + f"- Return exactly {max(0, top_n)} top_matches.\n"
-        + "- Keep 'answer' very short (max 300 chars, ~2 sentences).\n"
-        + "- 'why_match' MUST be a single line, max 10 words (e.g. 'Strong Python & AWS exp; lacks React.').\n"
-        + "- Return JSON ONLY (no Markdown fences).\n"
+    result = await rag_search_async(
+        user_query=body.query,
+        explicit_filter=body.filters,
+        top_k=retrieval_top_k,
+        rerank_top_n=rerank_top_n,
+        llm_top_n=llm_top_n,
+        use_planner=body.planner,
+        with_llm=body.with_llm
     )
 
-    try:
-        resp = llm_call.invoke(
-            [
-                SystemMessage(content=tight_system),
-                HumanMessage(content=json.dumps(user_msg, ensure_ascii=False)),
-            ]
-        )
-    except Exception as e:
-        logger.exception(
-            "LLM invoke failed; using fallback",
-            extra={"query": query, "llm_provider": selected_provider, "llm_model": selected_model, "llm_error": str(e)},
-        )
-        fallback_reason = "llm_invoke_failed"
-        answer_obj = _fallback_answer_obj(
-            query=query,
-            flt=flt,
-            sources=sources,
-            top_n=top_n,
-            reason=f"LLM invoke failed ({selected_provider})",
-            raw=None,
-        )
-        return {
-            "answer": answer_obj,
-            "answer_text": str(answer_obj.get("answer") or ""),
-            "sources": sources,
-            "filters_applied": flt,
-            "llm_provider": selected_provider,
-            "llm_used": selected_provider,
-            "llm_model": selected_model,
-            "llm_fallback_reason": fallback_reason,
-            "retrieved_docs": retrieved_docs,
-            "unique_sources": len(sources),
-            "k": k,
-            "latency_sec": round(time.time() - start, 2),
-            "retrieval_sec": round(t1 - t0, 2),
-            "pinecone_sec": round(t1 - t0, 2),
-            "rerank_sec": rerank_sec,
-            "llm_sec": 0.0,
-            "llm_prompt_tokens": 0,
-            "llm_completion_tokens": 0,
-            "llm_total_tokens": 0,
-        }
+    # Format sources
+    candidates = result.get("results", [])
+    sources = [_format_source(c) for c in candidates]
 
-    t3 = time.time()
+    # Process answer
+    answer_obj = result.get("answer") or {}
 
-    prompt_tokens, completion_tokens, total_tokens, usage_model = _extract_llm_usage(resp)
-    llm_model_used = usage_model or selected_model or selected_provider
+    # Hydrate top_matches in answer with full source details
+    sources_map = {s["id"]: s for s in sources}
+    _hydrate_answer_matches(answer_obj, sources_map)
 
-    raw = _coerce_llm_text(getattr(resp, "content", resp) or "")
-    _log_llm_raw_output(resp, raw, selected_provider, selected_model)
-
-    try:
-        parsed = _safe_json_loads(raw)
-        answer_obj = _coerce_answer_obj(query, flt, sources, parsed, top_n=top_n)
-        logger.info("LLM parsing successful", extra={"query": query})
-
-        # Inject reasoning back into sources for the UI
-        top_matches = answer_obj.get("top_matches") or []
-        reasoning_map = {m.get("id"): m.get("why_match") for m in top_matches if m.get("id")}
-
-        # Hydrate top_matches with full metadata from sources
-        # because the LLM was instructed not to return full_name/profile_url to save tokens
-        source_map = {s.get("id"): s for s in sources if s.get("id")}
-
-        for m in top_matches:
-            mid = m.get("id")
-            if mid and mid in source_map:
-                s = source_map[mid]
-                # Restore key fields if missing
-                if not m.get("full_name"):
-                    m["full_name"] = s.get("full_name") or ""
-                if not m.get("profile_url"):
-                    m["profile_url"] = s.get("profile_url") or ""
-                if not m.get("image_url"):
-                    # The source has profile_image_url populated from profile_image_s3_url in _pinecone_query
-                    m["image_url"] = s.get("profile_image_url") or None
-
-                # Also inject reasoning back into the source object itself (redundant but safe)
-                if m.get("why_match"):
-                    s["reasoning"] = m.get("why_match")
-
-    except Exception as e:
-        logger.exception(
-            "LLM failed; attempting to salvage unstructured output",
-            extra={
-                "query": query,
-                "llm_error": str(e),
-                "llm_provider": selected_provider,
-                "llm_model": selected_model,
-                "llm_raw_snippet": raw[:1500],
-            },
-        )
-
-        answer_obj = _answer_from_unstructured_raw(
-            raw,
-            query=query,
-            flt=flt,
-            sources=sources,
-            top_n=top_n,
-        )
-        if answer_obj is not None:
-            fallback_reason = "unstructured_output"
-            logger.info("LLM output unstructured; surfaced raw text", extra={"query": query})
-        else:
-            fallback_reason = "llm_fallback"
-            answer_obj = _fallback_answer_obj(
-                query=query,
-                flt=flt,
-                sources=sources,
-                top_n=top_n,
-                reason="LLM fallback",
-                raw=raw,
-            )
-
-    result = {
+    return {
         "answer": answer_obj,
         "answer_text": str(answer_obj.get("answer") or ""),
         "sources": sources,
-        "filters_applied": flt,
-        "llm_provider": selected_provider,
-        "llm_used": selected_provider,
-        "llm_model": llm_model_used,
-        "llm_fallback_reason": fallback_reason,
-        "retrieved_docs": retrieved_docs,
+        "filters_applied": result.get("filters_applied"),
+        # Metadata
+        "llm_provider": body.llm_provider or "default",
+        "llm_model": body.llm_model or "default",
+        "retrieved_docs": len(candidates), # Note: this is the reranked count
         "unique_sources": len(sources),
-        "k": k,
-        "latency_sec": round(t3 - start, 2),
-        "retrieval_sec": round(t1 - t0, 2),
-        "pinecone_sec": round(t1 - t0, 2),
-        "embedding_sec": round(embed_sec, 2),
-        "rerank_sec": rerank_sec,
-        "llm_sec": round(t3 - t2, 2),
-        "llm_prompt_tokens": prompt_tokens,
-        "llm_completion_tokens": completion_tokens,
-        "llm_total_tokens": total_tokens,
+        "k": body.k or retrieval_top_k,
+        "latency_sec": result.get("latency_sec"),
+        "retrieval_sec": result.get("retrieval_sec"),
+        "rerank_sec": result.get("rerank_sec"),
+        "llm_sec": result.get("llm_sec"),
     }
-    _cache_set(cache, cache_key, result)
-    return result
 
 
 @router.get("/meta", include_in_schema=False)
