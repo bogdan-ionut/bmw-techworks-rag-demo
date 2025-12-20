@@ -18,8 +18,9 @@ try:
     # Pinecone SDK v3+
     from pinecone import Pinecone
     from pinecone_text.sparse import BM25Encoder
-except Exception as e:  # pragma: no cover
-    raise RuntimeError("Missing dependency: pinecone or pinecone-text. Install with: pip install pinecone pinecone-text") from e
+except Exception as e:
+    raise RuntimeError(
+        "Missing dependency: pinecone or pinecone-text. Install with: pip install pinecone pinecone-text") from e
 
 try:
     import boto3
@@ -27,11 +28,10 @@ try:
 except Exception:
     boto3 = None  # optional (S3 fallback)
 
-
 # -----------------------------------------------------------------------------
 # Paths / defaults
 # -----------------------------------------------------------------------------
-PROJECT_DIR = Path(__file__).resolve().parents[2]  # .../bmw-techworks-rag-demo
+PROJECT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_DIR / "data"
 DEFAULT_JSONL_PATH = DATA_DIR / "bmw_employees_cleaned_s3.jsonl"
 
@@ -46,10 +46,6 @@ DEFAULT_BATCH_SIZE = int(os.getenv("INGEST_BATCH_SIZE", "64"))
 # Optional: S3 download if local JSONL missing
 # -----------------------------------------------------------------------------
 def maybe_download_jsonl_from_s3(local_path: Path, bucket: str, key: str) -> None:
-    """
-    Optional fallback: if local JSONL is missing, try downloading from S3.
-    Requires AWS creds too. If boto3 isn't installed, this just does nothing.
-    """
     if local_path.exists():
         return
     if not bucket or not key:
@@ -69,7 +65,7 @@ def maybe_download_jsonl_from_s3(local_path: Path, bucket: str, key: str) -> Non
 
 
 # -----------------------------------------------------------------------------
-# JSONL loading
+# JSONL loading & Helpers
 # -----------------------------------------------------------------------------
 def load_jsonl(path: Path) -> List[Dict[str, Any]]:
     records: List[Dict[str, Any]] = []
@@ -82,293 +78,128 @@ def load_jsonl(path: Path) -> List[Dict[str, Any]]:
                 rec = json.loads(line)
                 if isinstance(rec, dict):
                     records.append(rec)
-                else:
-                    print(f"[WARN] Line {i}: JSON is not an object; skipping.")
-            except json.JSONDecodeError as e:
-                print(f"[WARN] Line {i}: invalid JSON ({e}); skipping.")
+            except Exception:
+                pass
     print(f"[INFO] Loaded {len(records)} records from {path}")
     return records
 
 
-# -----------------------------------------------------------------------------
-# Helpers: flatten + embedding text
-# -----------------------------------------------------------------------------
 def _norm_str(x: Any) -> str:
-    if x is None:
-        return ""
-    return str(x).strip()
+    return str(x).strip() if x is not None else ""
 
 
 def _normalize_name(s: Any) -> str:
-    """
-    Lowercase and remove diacritics for search normalization.
-    e.g. "Ionuț Buraga" -> "ionut buraga"
-    """
-    if not s:
-        return ""
+    if not s: return ""
     text = str(s).strip().lower()
-    # NFD decomposition (separate chars from accents)
     text = unicodedata.normalize("NFD", text)
-    # Filter out non-spacing marks
     text = "".join(c for c in text if unicodedata.category(c) != "Mn")
     return text
 
 
 def _safe_get(d: Dict[str, Any], path: List[str]) -> Any:
-    cur: Any = d
+    cur = d
     for k in path:
-        if not isinstance(cur, dict):
-            return None
+        if not isinstance(cur, dict): return None
         cur = cur.get(k)
     return cur
 
 
 def _as_list_of_str(x: Any) -> List[str]:
-    if x is None:
-        return []
-    if isinstance(x, list):
-        return [str(v).strip() for v in x if str(v).strip()]
+    if not x: return []
+    if isinstance(x, list): return [str(v).strip() for v in x if str(v).strip()]
     s = str(x).strip()
     return [s] if s else []
 
 
 def extract_tech_tokens(headline: str) -> List[str]:
-    """
-    Heuristic: split headline on separators to get "skills-ish" tokens.
-    Example: "Software Engineer @ BMW | React.js, React Native, Vue.js, Expo"
-    """
     h = headline or ""
-    parts: List[str] = []
+    parts = []
     for chunk in re.split(r"[|]", h):
         parts.extend([p.strip() for p in chunk.split(",") if p.strip()])
-
     noise = {"@", "at", "bmw", "techworks", "romania"}
-    tokens: List[str] = []
+    tokens = []
     for p in parts:
         p2 = re.sub(r"\s+", " ", p).strip()
-        p2_low = p2.lower()
-        if not p2 or p2_low in noise:
-            continue
-        if 2 <= len(p2) <= 60:
-            tokens.append(p2)
+        if not p2 or p2.lower() in noise: continue
+        if 2 <= len(p2) <= 60: tokens.append(p2)
+    return list(dict.fromkeys(tokens))[:40]
 
-    seen = set()
-    out = []
-    for t in tokens:
-        tl = t.lower()
-        if tl not in seen:
-            seen.add(tl)
-            out.append(t)
-    return out[:40]
+
+def infer_bool_from_text(s: str, negative_markers: Tuple[str, ...]) -> Optional[bool]:
+    if not s: return None
+    low = s.lower()
+    for m in negative_markers:
+        if m in low: return False
+    return True
 
 
 def build_embedding_text(rec: Dict[str, Any]) -> str:
-    """
-    Text embedded in Pinecone (maximize semantic retrieval):
-    - job titles, headline, location, education
-    - image caption summary + appearance/clothing tags (for "with eyeglasses", etc.)
-    """
+    # Build rich text representation for embedding
+    lines = []
     full_name = _norm_str(rec.get("full_name"))
+    if full_name: lines.append(f"Name: {full_name}")
+
     headline = _norm_str(rec.get("headline"))
-    job_title = _norm_str(rec.get("job_title"))
-    job_range = _norm_str(rec.get("job_date_range"))
-    job_title_2 = _norm_str(rec.get("job_title_2"))
-    job_range_2 = _norm_str(rec.get("job_date_range_2"))
-    location = _norm_str(rec.get("location"))
-
-    school = _norm_str(rec.get("school"))
-    school_degree = _norm_str(rec.get("school_degree"))
-    school_range = _norm_str(rec.get("school_date_range"))
-    school_2 = _norm_str(rec.get("school_2"))
-    school_degree_2 = _norm_str(rec.get("school_degree_2"))
-    school_range_2 = _norm_str(rec.get("school_date_range_2"))
-
-    img_summary = _norm_str(_safe_get(rec, ["image_caption", "summary"]))
-    hair = _norm_str(_safe_get(rec, ["image_caption", "appearance", "hair"]))
-    facial_hair = _norm_str(_safe_get(rec, ["image_caption", "appearance", "facial_hair"]))
-    eyewear = _norm_str(_safe_get(rec, ["image_caption", "appearance", "eyewear"]))
-    expression = _norm_str(_safe_get(rec, ["image_caption", "appearance", "expression"]))
-    visible_features = _as_list_of_str(_safe_get(rec, ["image_caption", "appearance", "visible_features"]))
-
-    clothing_style = _norm_str(_safe_get(rec, ["image_caption", "clothing", "style"]))
-    clothing_items = _as_list_of_str(_safe_get(rec, ["image_caption", "clothing", "items"]))
-    accessories = _as_list_of_str(_safe_get(rec, ["image_caption", "clothing", "accessories"]))
-
-    background = _norm_str(_safe_get(rec, ["image_caption", "image_composition", "background"]))
-    search_tags = _as_list_of_str(_safe_get(rec, ["image_caption", "search_tags"]))
+    if headline: lines.append(f"Headline: {headline}")
 
     tech_tokens = extract_tech_tokens(headline)
+    if tech_tokens: lines.append("Tech: " + ", ".join(tech_tokens))
 
-    lines: List[str] = []
-    if full_name:
-        lines.append(f"Name: {full_name}")
-    if headline:
-        lines.append(f"Headline: {headline}")
-    if tech_tokens:
-        lines.append("Tech/keywords: " + ", ".join(tech_tokens))
+    job_title = _norm_str(rec.get("job_title"))
+    if job_title: lines.append(f"Role: {job_title}")
 
-    if job_title or job_range:
-        lines.append(f"Current role: {job_title} ({job_range})".strip())
-    if job_title_2 or job_range_2:
-        lines.append(f"Previous role: {job_title_2} ({job_range_2})".strip())
+    location = _norm_str(rec.get("location"))
+    if location: lines.append(f"Location: {location}")
 
-    if location:
-        lines.append(f"Location: {location}")
+    school = _norm_str(rec.get("school"))
+    if school: lines.append(f"Education: {school}")
 
-    edu1 = " – ".join([x for x in [school, school_degree, school_range] if x])
-    edu2 = " – ".join([x for x in [school_2, school_degree_2, school_range_2] if x])
-    if edu1:
-        lines.append(f"Education: {edu1}")
-    if edu2:
-        lines.append(f"Education: {edu2}")
-
-    # image semantics
-    if img_summary:
-        lines.append(f"Photo summary: {img_summary}")
-    if eyewear:
-        lines.append(f"Eyewear: {eyewear}")
-    if facial_hair:
-        lines.append(f"Facial hair: {facial_hair}")
-    if hair:
-        lines.append(f"Hair: {hair}")
-    if expression:
-        lines.append(f"Expression: {expression}")
-    if visible_features:
-        lines.append("Visible features: " + ", ".join(visible_features))
-    if clothing_style:
-        lines.append(f"Clothing style: {clothing_style}")
-    if clothing_items:
-        lines.append("Clothing items: " + ", ".join(clothing_items))
-    if accessories:
-        lines.append("Accessories: " + ", ".join(accessories))
-    if background:
-        lines.append(f"Background: {background}")
-    if search_tags:
-        lines.append("Search tags: " + ", ".join(search_tags))
+    summary = _norm_str(_safe_get(rec, ["image_caption", "summary"]))
+    if summary: lines.append(f"Image: {summary}")
 
     return "\n".join(lines).strip()
 
 
-def infer_bool_from_text(s: str, negative_markers: Tuple[str, ...]) -> Optional[bool]:
-    if not s:
-        return None
-    low = s.lower()
-    for m in negative_markers:
-        if m in low:
-            return False
-    return True
-
-
 def build_metadata(rec: Dict[str, Any], embedding_text: str) -> Dict[str, Any]:
-    """
-    Pinecone metadata must be flat.
-    Keep UI fields + filter-friendly fields + flattened image caption.
-    Also store embedding_text for rerank/context building later.
-    """
-    headline = _norm_str(rec.get("headline"))
-    tech_tokens = extract_tech_tokens(headline)
-
     eyewear = _norm_str(_safe_get(rec, ["image_caption", "appearance", "eyewear"]))
     facial_hair = _norm_str(_safe_get(rec, ["image_caption", "appearance", "facial_hair"]))
 
-    eyewear_present = infer_bool_from_text(
-        eyewear, negative_markers=("no eyewear", "without eyewear", "none visible")
-    )
-    beard_present = infer_bool_from_text(
-        facial_hair, negative_markers=("no visible", "none", "clean-shaven", "clean shaven")
-    )
+    eyewear_present = infer_bool_from_text(eyewear, ("no eyewear", "without eyewear", "none visible"))
+    beard_present = infer_bool_from_text(facial_hair, ("no visible", "none", "clean-shaven"))
 
     full_name_norm = _normalize_name(rec.get("full_name_normalized") or rec.get("full_name"))
 
-    md: Dict[str, Any] = {
-        # identity / UI
+    md = {
         "vmid": _norm_str(rec.get("vmid")),
         "full_name": _norm_str(rec.get("full_name")),
         "full_name_normalized": full_name_norm,
         "name_tokens": full_name_norm.split() if full_name_norm else [],
         "profile_url": _norm_str(rec.get("profile_url")),
         "profile_image_s3_url": _norm_str(rec.get("profile_image_s3_url")),
-        "profile_image_s3_key": _norm_str(rec.get("profile_image_s3_key")),
-
-        # work
-        "headline": headline,
+        "headline": _norm_str(rec.get("headline")),
         "job_title": _norm_str(rec.get("job_title")),
-        "job_date_range": _norm_str(rec.get("job_date_range")),
-        "job_title_2": _norm_str(rec.get("job_title_2")),
-        "job_date_range_2": _norm_str(rec.get("job_date_range_2")),
-
-        # location
         "location": _norm_str(rec.get("location")),
         "location_normalized": _norm_str(rec.get("location_normalized")),
-
-        # education
         "school": _norm_str(rec.get("school")),
-        "school_degree": _norm_str(rec.get("school_degree")),
-        "school_date_range": _norm_str(rec.get("school_date_range")),
-        "school_2": _norm_str(rec.get("school_2")),
-        "school_degree_2": _norm_str(rec.get("school_degree_2")),
-        "school_date_range_2": _norm_str(rec.get("school_date_range_2")),
-
-        # numeric
         "minimum_estimated_years_of_exp": rec.get("minimum_estimated_years_of_exp"),
-
-        # image caption (flattened)
-        "image_summary": _norm_str(_safe_get(rec, ["image_caption", "summary"])),
-        "image_hair": _norm_str(_safe_get(rec, ["image_caption", "appearance", "hair"])),
-        "image_facial_hair": facial_hair,
-        "image_eyewear": eyewear,
-        "image_expression": _norm_str(_safe_get(rec, ["image_caption", "appearance", "expression"])),
-        "image_head_pose": _norm_str(_safe_get(rec, ["image_caption", "appearance", "head_pose"])),
-        "image_background": _norm_str(_safe_get(rec, ["image_caption", "image_composition", "background"])),
-
-        # filter booleans
         "eyewear_present": eyewear_present,
         "beard_present": beard_present,
-
-        # lists
-        "tech_tokens": tech_tokens,
-        "image_search_tags": _as_list_of_str(_safe_get(rec, ["image_caption", "search_tags"])),
-        "image_clothing_items": _as_list_of_str(_safe_get(rec, ["image_caption", "clothing", "items"])),
-        "image_clothing_colors": _as_list_of_str(_safe_get(rec, ["image_caption", "clothing", "colors"])),
-        "image_accessories": _as_list_of_str(_safe_get(rec, ["image_caption", "clothing", "accessories"])),
-
-        # useful for rerank/LLM later
+        "tech_tokens": extract_tech_tokens(rec.get("headline")),
         "embedding_text": embedding_text,
     }
-
-    # compact
-    compact: Dict[str, Any] = {}
-    for k, v in md.items():
-        if v is None:
-            continue
-        if isinstance(v, str) and not v.strip():
-            continue
-        if isinstance(v, list) and len(v) == 0:
-            continue
-        compact[k] = v
-    return compact
+    return {k: v for k, v in md.items() if v not in (None, "", [])}
 
 
 def stable_id(rec: Dict[str, Any]) -> str:
-    vmid = _norm_str(rec.get("vmid"))
-    if vmid:
-        return vmid
-    url = _norm_str(rec.get("profile_url"))
-    if url:
-        return url
-    name = _norm_str(rec.get("full_name"))
-    return name or "unknown"
+    return _norm_str(rec.get("vmid")) or _norm_str(rec.get("profile_url")) or "unknown"
 
 
 def batched(items: List[Any], n: int) -> Iterable[List[Any]]:
     for i in range(0, len(items), n):
-        yield items[i : i + n]
+        yield items[i: i + n]
 
 
 def get_pinecone_index(pc: Pinecone, index_name: str):
-    """
-    Pinecone SDK v3: best practice is to use host from describe_index.
-    """
     desc = pc.describe_index(index_name)
     host = getattr(desc, "host", None)
     if host:
@@ -376,121 +207,103 @@ def get_pinecone_index(pc: Pinecone, index_name: str):
     return pc.Index(index_name)
 
 
+# -----------------------------------------------------------------------------
+# MAIN
+# -----------------------------------------------------------------------------
 def main() -> None:
     load_dotenv(PROJECT_DIR / ".env")
 
-    parser = argparse.ArgumentParser(description="Build Pinecone index from bmw_employees_cleaned_s3.jsonl")
-    parser.add_argument("--jsonl", type=str, default=str(DEFAULT_JSONL_PATH), help="Path to JSONL file")
-    parser.add_argument("--secret-name", type=str, default=DEFAULT_AWS_SECRET_NAME, help="AWS Secrets Manager secret name")
-    parser.add_argument("--region", type=str, default=DEFAULT_AWS_REGION, help="AWS region for Secrets Manager/S3")
-    parser.add_argument("--embed-model", type=str, default=DEFAULT_EMBED_MODEL, help="OpenAI embedding model")
-    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="Batch size for embedding/upsert")
-    parser.add_argument("--clear", action="store_true", help="DANGER: delete all vectors in namespace before upsert")
-    parser.add_argument("--dry-run", action="store_true", help="Do not upsert, only print a sample")
+    parser = argparse.ArgumentParser(description="Build Pinecone index (Hybrid) from jsonl")
+    parser.add_argument("--jsonl", type=str, default=str(DEFAULT_JSONL_PATH))
+    parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--clear", action="store_true")
     args = parser.parse_args()
 
-    # Ensure secrets loader sees your chosen region/secret
-    if args.secret_name:
-        os.environ["AWS_SECRET_NAME"] = args.secret_name
-    if args.region:
-        os.environ["AWS_REGION"] = args.region
-
+    # Load Secrets
     secrets = load_secrets()
+    openai_key = secrets.get("OPENAI_API_KEY")
+    pinecone_key = secrets.get("PINECONE_API_KEY")
+    index_name = secrets.get("PINECONE_INDEX_NAME")
+    namespace = secrets.get("PINECONE_NAMESPACE")
 
-    openai_key = (secrets.get("OPENAI_API_KEY") or "").strip()
-    pinecone_key = (secrets.get("PINECONE_API_KEY") or "").strip()
-    index_name = (secrets.get("PINECONE_INDEX_NAME") or "").strip()
-    namespace = (secrets.get("PINECONE_NAMESPACE") or "").strip()
+    if not openai_key or not pinecone_key or not index_name:
+        raise RuntimeError("Missing API Keys (OPENAI/PINECONE) or Index Name.")
 
-    if not openai_key:
-        raise RuntimeError("Missing OPENAI_API_KEY (AWS secret or env).")
-    if not pinecone_key:
-        raise RuntimeError("Missing PINECONE_API_KEY (AWS secret or env).")
-    if not index_name:
-        raise RuntimeError("Missing PINECONE_INDEX_NAME (AWS secret or env).")
-    if not namespace:
-        raise RuntimeError("Missing PINECONE_NAMESPACE (AWS secret or env).")
-
+    # Load Data
     jsonl_path = Path(args.jsonl).expanduser().resolve()
-
-    # Optional S3 fallback if local file missing
     maybe_download_jsonl_from_s3(
         local_path=jsonl_path,
-        bucket=(secrets.get("S3_BUCKET") or "").strip(),
-        key=(secrets.get("S3_KEY") or "").strip(),
+        bucket=secrets.get("S3_BUCKET"),
+        key=secrets.get("S3_KEY")
     )
-
-    if not jsonl_path.exists():
-        raise FileNotFoundError(f"JSONL file not found at: {jsonl_path}")
 
     records = load_jsonl(jsonl_path)
     if not records:
-        raise RuntimeError("No records loaded from JSONL.")
+        raise RuntimeError("No records found.")
 
-    ids: List[str] = []
-    texts: List[str] = []
-    metadatas: List[Dict[str, Any]] = []
-
+    ids, texts, metadatas = [], [], []
     for rec in records:
-        _id = stable_id(rec)
         emb_text = build_embedding_text(rec)
-        md = build_metadata(rec, embedding_text=emb_text)
-
-        ids.append(_id)
+        ids.append(stable_id(rec))
         texts.append(emb_text)
-        metadatas.append(md)
+        metadatas.append(build_metadata(rec, emb_text))
 
     if args.dry_run:
-        print("\n=== DRY RUN SAMPLE ===")
-        print("ID:", ids[0])
-        print("\n--- EMBED TEXT ---\n", texts[0][:1200], "\n...")
-        print("\n--- METADATA ---\n", json.dumps(metadatas[0], ensure_ascii=False, indent=2)[:1200], "\n...")
-        print("\n(DRY RUN: no upsert performed)")
+        print("Dry run complete. First record text preview:", texts[0][:100])
         return
 
+    # Init Models
     embeddings = OpenAIEmbeddings(api_key=openai_key, model=args.embed_model)
 
-    # Hybrid search: BM25 (fit on corpus)
+    # --- HYBRID SEARCH: BM25 INIT ---
     print(f"[INFO] Fitting BM25 on {len(texts)} text chunks...")
     bm25 = BM25Encoder()
     bm25.fit(texts)
+
     bm25_path = DATA_DIR / "bm25_params.json"
     bm25.dump(str(bm25_path))
     print(f"[INFO] Saved BM25 params to {bm25_path}")
 
+    # Connect Pinecone
     pc = Pinecone(api_key=pinecone_key)
     index = get_pinecone_index(pc, index_name)
 
     if args.clear:
-        print(f"[WARN] Clearing Pinecone namespace '{namespace}' in index '{index_name}'...")
-        index.delete(delete_all=True, namespace=namespace)
-        print("[INFO] Namespace cleared.")
+        print(f"[WARN] Clearing namespace {namespace}...")
+        try:
+            index.delete(delete_all=True, namespace=namespace)
+        except Exception:
+            pass
 
-    total = len(texts)
-    print(f"[INFO] Upserting {total} vectors into Pinecone index='{index_name}', namespace='{namespace}'")
+    print(f"[INFO] Upserting {len(texts)} vectors (Hybrid: Dense + Sparse)...")
 
-    for batch_idx, batch in enumerate(batched(list(range(total)), args.batch_size), start=1):
-        batch_ids = [ids[i] for i in batch]
-        batch_texts = [texts[i] for i in batch]
-        batch_mds = [metadatas[i] for i in batch]
+    # Upsert Loop
+    for i, batch in enumerate(batched(list(range(len(texts))), args.batch_size)):
+        batch_ids = [ids[k] for k in batch]
+        batch_texts = [texts[k] for k in batch]
+        batch_mds = [metadatas[k] for k in batch]
 
-        vecs = embeddings.embed_documents(batch_texts)
-        # Hybrid search: generate sparse vectors
+        # 1. Generate Dense Vectors
+        dense_vecs = embeddings.embed_documents(batch_texts)
+
+        # 2. Generate Sparse Vectors (BM25)
         sparse_vecs = bm25.encode_documents(batch_texts)
 
+        # 3. Combine
         vectors = []
-        for _id, values, sparse, md in zip(batch_ids, vecs, sparse_vecs, batch_mds):
+        for _id, dense, sparse, md in zip(batch_ids, dense_vecs, sparse_vecs, batch_mds):
             vectors.append({
                 "id": _id,
-                "values": values,
-                "sparse_values": sparse,
+                "values": dense,
+                "sparse_values": sparse,  # <--- CRITICAL FOR HYBRID
                 "metadata": md
             })
 
         index.upsert(vectors=vectors, namespace=namespace)
-        print(f"[INFO] Batch {batch_idx}: upserted {len(vectors)} vectors")
+        print(f"[INFO] Batch {i + 1} upserted.")
 
-    print("✅ Done. Pinecone index updated successfully.")
+    print("✅ Indexing Complete.")
 
 
 if __name__ == "__main__":
