@@ -177,5 +177,5 @@ def get_settings() -> Settings:
             "DATA_JSONL_PATH",
             "/Users/ionutbogdan/PycharmProjects/bmw-techworks-rag-demo/data/bmw_employees_cleaned_s3.jsonl",
         ),
-        demo_password=pick("DEMO_PASSWORD", ""),
+        demo_password=pick("DEMO_PASSWORD", "").strip(),
     )
