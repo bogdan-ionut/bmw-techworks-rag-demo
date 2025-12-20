@@ -38,6 +38,11 @@ def _env_fallback() -> Dict[str, str]:
         "PINECONE_INDEX_NAME": pinecone_index,
         "PINECONE_NAMESPACE": pinecone_ns,
         "DEMO_PASSWORD": _env("DEMO_PASSWORD"),
+        # --- LANGCHAIN / LANGSMITH KEYS ---
+        "LANGCHAIN_TRACING_V2": _env("LANGCHAIN_TRACING_V2"),
+        "LANGCHAIN_ENDPOINT": _env("LANGCHAIN_ENDPOINT"),
+        "LANGCHAIN_API_KEY": _env("LANGCHAIN_API_KEY"),
+        "LANGCHAIN_PROJECT": _env("LANGCHAIN_PROJECT"),
     }
 
 
@@ -49,16 +54,6 @@ def load_secrets(secret_id: Optional[str] = None, region: Optional[str] = None) 
     Supports env names:
       - AWS_SECRET_ID (preferred) OR AWS_SECRET_NAME (legacy)
       - AWS_REGION / AWS_DEFAULT_REGION
-
-    Expected JSON keys (your current format):
-    {
-      "OPENAI_API_KEY": "...",
-      "GOOGLE_API_KEY": "...",
-      "PINECONE_API_KEY": "...",
-      "COHERE_API_KEY": "...",
-      "PINECONE_INDEX_NAME": "bmw-techworks",
-      "PINECONE_NAMESPACE": "profiles"
-    }
     """
     sid = (secret_id or _env("AWS_SECRET_ID") or _env("AWS_SECRET_NAME")).strip()
     reg = (region or _env("AWS_REGION") or _env("AWS_DEFAULT_REGION") or "us-east-1").strip()
@@ -99,6 +94,11 @@ def load_secrets(secret_id: Optional[str] = None, region: Optional[str] = None) 
             "PINECONE_INDEX_NAME": pinecone_index or fb.get("PINECONE_INDEX_NAME", ""),
             "PINECONE_NAMESPACE": pick("PINECONE_NAMESPACE") or "profiles",
             "DEMO_PASSWORD": pick("DEMO_PASSWORD"),
+            # --- LANGCHAIN / LANGSMITH KEYS ---
+            "LANGCHAIN_TRACING_V2": pick("LANGCHAIN_TRACING_V2"),
+            "LANGCHAIN_ENDPOINT": pick("LANGCHAIN_ENDPOINT"),
+            "LANGCHAIN_API_KEY": pick("LANGCHAIN_API_KEY"),
+            "LANGCHAIN_PROJECT": pick("LANGCHAIN_PROJECT"),
         }
 
     except (NoCredentialsError, BotoCoreError, ClientError, ValueError, json.JSONDecodeError) as e:

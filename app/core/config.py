@@ -75,6 +75,12 @@ class Settings:
     # Auth
     demo_password: str
 
+    # Observability (LangSmith)
+    langchain_tracing_v2: str
+    langchain_endpoint: str
+    langchain_api_key: str
+    langchain_project: str
+
     def redacted(self) -> Dict[str, Any]:
         def mask(x: str) -> str:
             if not x:
@@ -110,6 +116,10 @@ class Settings:
             "log_json": self.log_json,
             "data_jsonl_path": self.data_jsonl_path,
             "demo_password": mask(self.demo_password),
+            # LangSmith logs
+            "langchain_tracing_v2": self.langchain_tracing_v2,
+            "langchain_project": self.langchain_project,
+            "langchain_api_key": mask(self.langchain_api_key),
         }
 
 
@@ -138,6 +148,24 @@ def get_settings() -> Settings:
 
     # Cohere model (English-first)
     cohere_model = pick("COHERE_RERANK_MODEL", "rerank-english-v3.0").strip()
+
+    # --- LANGSMITH CONFIGURATION ---
+    # We must explicitly set these in os.environ because LangChain SDK
+    # looks for them automatically in the environment.
+    lc_tracing = pick("LANGCHAIN_TRACING_V2", "false")
+    lc_endpoint = pick("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
+    lc_api_key = pick("LANGCHAIN_API_KEY", "")
+    lc_project = pick("LANGCHAIN_PROJECT", "bmw-demo")
+
+    if lc_tracing:
+        os.environ["LANGCHAIN_TRACING_V2"] = lc_tracing
+    if lc_endpoint:
+        os.environ["LANGCHAIN_ENDPOINT"] = lc_endpoint
+    if lc_api_key:
+        os.environ["LANGCHAIN_API_KEY"] = lc_api_key
+    if lc_project:
+        os.environ["LANGCHAIN_PROJECT"] = lc_project
+    # -------------------------------
 
     return Settings(
         env=pick("APP_ENV", "local"),
@@ -178,4 +206,10 @@ def get_settings() -> Settings:
             "/Users/ionutbogdan/PycharmProjects/bmw-techworks-rag-demo/data/bmw_employees_cleaned_s3.jsonl",
         ),
         demo_password=pick("DEMO_PASSWORD", "").strip(),
+
+        # LangSmith (Stored in settings mainly for logging/debugging)
+        langchain_tracing_v2=lc_tracing,
+        langchain_endpoint=lc_endpoint,
+        langchain_api_key=lc_api_key,
+        langchain_project=lc_project,
     )
