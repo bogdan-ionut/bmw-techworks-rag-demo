@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass
+from pathlib import Path
+from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
 from langchain_core.documents import Document
@@ -13,9 +14,31 @@ try:
     from pinecone import Pinecone
     from pinecone_text.sparse import BM25Encoder
 except Exception as e:  # pragma: no cover
-    raise RuntimeError("Missing dependency: pinecone or pinecone-text. Install with: pip install pinecone pinecone-text") from e
+    raise RuntimeError(
+        "Missing dependency: pinecone or pinecone-text. Install with: pip install pinecone pinecone-text") from e
 
 from app.core.config import get_settings as get_app_settings
+
+# --- CONSTANTS ---
+PROJECT_DIR = Path(__file__).resolve().parents[2]
+DATA_DIR = PROJECT_DIR / "data"
+
+
+@lru_cache(maxsize=1)
+def get_bm25_encoder():
+    """
+    Loads the BM25 encoder from disk only once and caches it in memory.
+    """
+    bm25_path = DATA_DIR / "bm25_params.json"
+    try:
+        if bm25_path.exists():
+            return BM25Encoder().load(str(bm25_path))
+        else:
+            print(f"[WARN] BM25 params not found at {bm25_path}. Using default encoder (suboptimal).")
+    except Exception as e:
+        print(f"[WARN] Error loading BM25 params: {e}. Using default.")
+
+    return BM25Encoder.default()
 
 
 def get_pinecone_index(pc: Pinecone, index_name: str):
@@ -39,6 +62,7 @@ def profile_text_from_metadata(md: Dict[str, Any]) -> str:
     if emb:
         return emb
 
+    # Fallback construction
     name = md.get("full_name") or ""
     headline = md.get("headline") or ""
     loc = md.get("location") or md.get("location_normalized") or ""
@@ -85,25 +109,22 @@ def profile_text_from_metadata(md: Dict[str, Any]) -> str:
 
 
 def retrieve_profiles(
-    query: str,
-    *,
-    top_k: int = 12,
-    metadata_filter: Optional[Dict[str, Any]] = None,
+        query: str,
+        *,
+        top_k: int = 12,
+        metadata_filter: Optional[Dict[str, Any]] = None,
 ) -> List[Document]:
     s = get_app_settings()
 
+    # 1. Generate Dense Vector (OpenAI)
     embeddings = OpenAIEmbeddings(api_key=s.openai_api_key, model=s.embed_model)
     qvec = embeddings.embed_query(query)
 
-    # Hybrid Search: Generate sparse vector
-    bm25_path = "data/bm25_params.json"
-    try:
-        bm25 = BM25Encoder().load(bm25_path)
-    except Exception as e:
-        print(f"[WARN] Could not load BM25 params from {bm25_path}, using default. Error: {e}")
-        bm25 = BM25Encoder.default()
+    # 2. Generate Sparse Vector (BM25 - Cached)
+    bm25 = get_bm25_encoder()
     sparse_vec = bm25.encode_queries(query)
 
+    # 3. Query Pinecone (Hybrid)
     pc = Pinecone(api_key=s.pinecone_api_key)
     index = get_pinecone_index(pc, s.pinecone_index_name)
 
@@ -146,7 +167,7 @@ def _cli() -> None:
     for i, d in enumerate(docs, start=1):
         print("=" * 90)
         print(f"[{i}] score={d.metadata.get('_score')}  id={d.metadata.get('_id')}")
-        print(d.page_content[:1200])
+        print(d.page_content[:200] + "...")
         print()
 
 
