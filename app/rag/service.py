@@ -325,6 +325,64 @@ async def generate_answer(user_query: str, candidates: List[Dict[str, Any]], fil
         }
 
 
+def _matches_filter(metadata: Dict[str, Any], filter_dict: Optional[Dict[str, Any]]) -> bool:
+    """
+    Checks if a candidate's metadata matches the MongoDB-style filter.
+    Supports a subset of operators used in this app ($eq, $in, $gte, $and, $or).
+    """
+    if not filter_dict:
+        return True
+
+    # Recursive check
+    for k, v in filter_dict.items():
+        if k == "$and":
+            if isinstance(v, list) and not all(_matches_filter(metadata, cond) for cond in v):
+                return False
+        elif k == "$or":
+            if isinstance(v, list) and not any(_matches_filter(metadata, cond) for cond in v):
+                return False
+        elif k.startswith("$"):
+            # Ignore other top-level operators if any
+            pass
+        else:
+            # Field check
+            val = metadata.get(k)
+
+            if isinstance(v, dict):
+                # Operator check
+                for op, op_val in v.items():
+                    if op == "$eq":
+                        if val != op_val: return False
+                    elif op == "$ne":
+                        if val == op_val: return False
+                    elif op == "$in":
+                        if not isinstance(op_val, list): return False
+                        if isinstance(val, list):
+                            # List intersection
+                            if not any(x in op_val for x in val): return False
+                        else:
+                            if val not in op_val: return False
+                    elif op == "$nin":
+                        if not isinstance(op_val, list): return False
+                        if isinstance(val, list):
+                            if any(x in op_val for x in val): return False
+                        else:
+                            if val in op_val: return False
+                    elif op == "$gte":
+                        if val is None or not isinstance(val, (int, float)) or val < op_val: return False
+                    elif op == "$gt":
+                        if val is None or not isinstance(val, (int, float)) or val <= op_val: return False
+                    elif op == "$lte":
+                        if val is None or not isinstance(val, (int, float)) or val > op_val: return False
+                    elif op == "$lt":
+                        if val is None or not isinstance(val, (int, float)) or val >= op_val: return False
+            else:
+                # Implicit equality
+                if val != v: return False
+
+    return True
+
+
 async def rag_search_async(
     user_query: str,
     explicit_filter: Optional[Dict[str, Any]] = None,
@@ -336,53 +394,71 @@ async def rag_search_async(
 ) -> Dict[str, Any]:
     s = get_settings()
     start_time = time.time()
+    loop = asyncio.get_running_loop()
 
     complexity = _classify_query_complexity(user_query)
     should_use_planner = use_planner and (complexity != "SIMPLE")
 
+    # 1. Speculative Retrieval (Parallel Task)
+    # We use explicit_filter (normalized) but NO hard/planner filters yet.
+    # We use raw user_query to maximize semantic recall of visual terms.
+
+    # Pre-normalize explicit filter to ensure it works in DB
+    speculative_filter = copy.deepcopy(explicit_filter)
+    speculative_filter = normalize_location_filter(speculative_filter)
+    speculative_filter = expand_name_filter(speculative_filter)
+
+    task_retrieval = loop.run_in_executor(
+        None,
+        partial(
+            retrieve_profiles,
+            query=user_query, # Use raw query for speculative search
+            top_k=top_k,
+            metadata_filter=speculative_filter,
+        )
+    )
+
+    # 2. Planner (Parallel Task)
+    task_planner = None
+    if should_use_planner:
+        task_planner = asyncio.create_task(plan_query_with_llm(user_query))
+
+    # Wait for both
+    docs = []
+    plan = {}
+    if task_planner:
+        retrieval_res, planner_res = await asyncio.gather(task_retrieval, task_planner)
+        docs = retrieval_res
+        plan = planner_res
+    else:
+        # If no planner, just await retrieval
+        docs = await task_retrieval
+        plan = {}
+
+    t1 = time.time()
+    retrieval_sec = t1 - start_time # Approximate
+
+    # 3. Process Filters & In-Memory Filtering
+
+    # Regex hard filters (run now, it's fast)
     hard_filter, cleaned_semantic = hard_filters_from_text(user_query)
 
-    plan_filter = None
-    semantic_query = cleaned_semantic or user_query
+    plan_filter = plan.get("filter")
+    # Use planner's semantic query if available for downstream usage
+    semantic_query = (plan.get("semantic_query") or cleaned_semantic or user_query).strip()
 
-    if should_use_planner:
-        plan = await plan_query_with_llm(user_query)
-        plan_filter = plan.get("filter")
-        semantic_query = (plan.get("semantic_query") or cleaned_semantic or user_query).strip()
-        # Planner might override top_k/rerank_top_n, but we respect defaults if not present
-        if plan.get("top_k"):
-             # Keep the higher of the two to be safe? Or prefer planner?
-             # Let's prefer the function arg if it was explicitly passed (not default),
-             # but here we can't easily distinguish. Let's trust the planner if it has an opinion,
-             # but default to our robust defaults.
-             pass
-
-    # Merge filters: explicit > hard > plan
+    # Merge: explicit (already applied but keeping for completeness) + hard + plan
     merged_filter = sanitize_filter(merge_filters(merge_filters(hard_filter, plan_filter), explicit_filter))
     merged_filter = normalize_location_filter(merged_filter)
     merged_filter = expand_name_filter(merged_filter)
 
-    loop = asyncio.get_running_loop()
-    t0 = time.time()
-    docs = await loop.run_in_executor(
-        None,
-        partial(
-            retrieve_profiles,
-            query=semantic_query,
-            top_k=top_k,
-            metadata_filter=merged_filter,
-        )
-    )
-    t1 = time.time()
-    retrieval_sec = t1 - t0
-
+    # Convert docs to candidates
     candidates: List[Dict[str, Any]] = []
     for d in docs:
         md = dict(d.metadata or {})
-        # Ensure we have a score
         score = md.get("_score")
         if score is None:
-             score = 0.0 # fallback
+             score = 0.0
 
         candidates.append(
             {
@@ -392,6 +468,11 @@ async def rag_search_async(
                 "metadata": md,
             }
         )
+
+    # APPLY IN-MEMORY FILTERING
+    # This enforces the "HARD" filters (eyewear, exp) that were discovered by planner/regex
+    # but might have been missed by speculative retrieval.
+    candidates = [c for c in candidates if _matches_filter(c["metadata"], merged_filter)]
 
     # rerank (optional)
     rerank_sec = 0.0
