@@ -94,5 +94,5 @@ def test_rag_query_endpoint(mock_rag_search):
     # Verify service call
     call_kwargs = mock_rag_search.call_args[1]
     assert call_kwargs["user_query"] == "find developers"
-    assert call_kwargs["llm_top_n"] == 8
+    assert call_kwargs["llm_top_n"] == 5
     assert call_kwargs["with_llm"] is True

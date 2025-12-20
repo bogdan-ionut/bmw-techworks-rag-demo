@@ -87,7 +87,7 @@ You are a recruiting intelligence assistant for BMW TechWorks.
 
 Your output MUST be a JSON object with the following schema:
 {
-  "answer": "A compelling, high-level executive summary of the talent pool found. Use 3-4 impactful sentences. Focus on the quality of the candidates, their shared strengths, and any notable location/skill trends.",
+  "answer": "Generate a concise summary (max 2 sentences). Focus ONLY on hard skills and fit. No fluff. No intro.",
   "top_matches": [
     {
       "id": "...",
@@ -101,8 +101,6 @@ Your output MUST be a JSON object with the following schema:
 - IMPORTANT: If the number of `top_matches` you return is less than the total number of candidate profiles reviewed, you MUST state this clearly in your "answer".
 - For "top_matches", the `id` field MUST match the `id` provided in the candidate text block.
 - Do NOT return `full_name` or `profile_url` in `top_matches`; we will map them back by `id`.
-
-Be practical and focus on actionable insights for recruiters. Your goal is to help them understand the search results at a glance.
 """
 
 
@@ -141,27 +139,18 @@ def format_candidates_for_prompt(candidates: List[Dict[str, Any]], max_chars: in
     blocks: List[str] = []
     for i, c in enumerate(candidates, start=1):
         md = c.get("metadata", {}) or {}
-        text = (c.get("text") or "").strip()
-        score = c.get("score")
-
-        # keep each candidate short to stay under context limits
-        if len(text) > max_chars:
-            text = text[:max_chars] + "..."
-
-        blocks.append(
-            "\n".join(
-                [
-                    f"Candidate #{i}",
-                    f"id: {c.get('id')}",
-                    f"score: {score}",
-                    f"full_name: {md.get('full_name')}",
-                    f"profile_url: {md.get('profile_url')}",
-                    f"image_url: {md.get('profile_image_s3_url')}",
-                    "text:",
-                    text,
-                ]
-            )
-        )
+        # Construct lean text
+        lines = [
+            f"Candidate #{i}",
+            f"id: {c.get('id')}",
+            f"headline: {md.get('headline', '')}",
+            f"role: {md.get('job_title', '')}",
+            f"company: {md.get('company', '')}",
+            f"skills: {', '.join(md.get('tech_tokens', []) or [])}",
+            f"experience_years: {md.get('minimum_estimated_years_of_exp', '')}",
+            f"location: {md.get('location', '')}",
+        ]
+        blocks.append("\n".join(lines))
     return "\n\n---\n\n".join(blocks)
 
 
