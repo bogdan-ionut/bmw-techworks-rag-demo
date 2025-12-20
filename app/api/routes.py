@@ -6,9 +6,10 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.rag.service import rag_search_async
+from app.rag.service import rag_search_async, rag_search_stream_generator
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -233,6 +234,72 @@ async def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         "rerank_sec": result.get("rerank_sec"),
         "llm_sec": result.get("llm_sec"),
     }
+
+
+@router.post("/query/stream")
+async def rag_query_stream(request: Request, body: QueryBody) -> StreamingResponse:
+    """
+    Streaming RAG endpoint.
+    Returns:
+      data: <token>
+      ...
+      event: metadata
+      data: <json_metadata>
+    """
+    # Defaults from instruction
+    retrieval_top_k = 60
+    rerank_top_n = 15
+    llm_top_n = 5
+
+    if body.k and body.k > 60:
+        retrieval_top_k = body.k
+
+    async def _stream_wrapper():
+        # Delegate to service generator
+        async for chunk in rag_search_stream_generator(
+            user_query=body.query,
+            explicit_filter=body.filters,
+            top_k=retrieval_top_k,
+            rerank_top_n=rerank_top_n,
+            llm_top_n=llm_top_n,
+            use_planner=body.planner
+        ):
+            # Intercept metadata event to hydrate sources
+            if chunk.startswith("event: metadata"):
+                try:
+                    # Extract JSON payload from data: ...
+                    # Expected format: event: metadata\ndata: <json>\n\n
+                    lines = chunk.strip().split("\n")
+                    json_str = lines[1].replace("data: ", "", 1)
+                    payload = json.loads(json_str)
+
+                    # Format candidates to sources
+                    candidates = payload.get("candidates", [])
+                    sources = [_format_source(c) for c in candidates]
+
+                    # Hydrate answer
+                    answer_obj = payload.get("answer") or {}
+                    sources_map = {s["id"]: s for s in sources}
+                    _hydrate_answer_matches(answer_obj, sources_map)
+
+                    # Reconstruct final payload for frontend
+                    final_payload = {
+                        "answer": answer_obj,
+                        "sources": sources,
+                        "filters_applied": payload.get("filters_applied"),
+                        "metrics": payload.get("metrics"),
+                        "llm_provider": body.llm_provider or "default",
+                    }
+
+                    yield f"event: metadata\ndata: {json.dumps(final_payload, default=str)}\n\n"
+                except Exception as e:
+                    logger.error(f"Error hydrating metadata in stream: {e}")
+                    # Fallback: send original chunk or error
+                    yield chunk
+            else:
+                yield chunk
+
+    return StreamingResponse(_stream_wrapper(), media_type="text/event-stream")
 
 
 @router.post("/benchmark")

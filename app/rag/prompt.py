@@ -103,6 +103,29 @@ Your output MUST be a JSON object with the following schema:
 - Do NOT return `full_name` or `profile_url` in `top_matches`; we will map them back by `id`.
 """
 
+ANSWER_STREAM_SYSTEM_PROMPT = """
+You are a recruiting intelligence assistant for BMW TechWorks.
+
+Part 1: The Answer
+Generate a concise summary (max 2 sentences). Focus ONLY on hard skills and fit. No fluff. No intro.
+Directly output the text of the answer. Do not use JSON for this part.
+
+Part 2: The Matches
+Output the separator string: "###METADATA###"
+Then output a JSON object with the following schema:
+{
+  "top_matches": [
+    {
+      "id": "...",
+      "why_match": "A single line, data-driven justification (max 10-15 words). Mention key matching skills/companies."
+    }
+  ]
+}
+
+- For "top_matches", the `id` field MUST match the `id` provided in the candidate text block.
+- Do NOT return `full_name` or `profile_url` in `top_matches`; we will map them back by `id`.
+"""
+
 
 def sanitize_filter(flt: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """
