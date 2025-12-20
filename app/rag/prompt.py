@@ -19,6 +19,18 @@ ALLOWED_FILTER_FIELDS = {
     "job_title",
 }
 
+CITY_NORMALIZATION_MAP = {
+    "cluj": "cluj-napoca",
+    "cluj napoca": "cluj-napoca",
+    "bucuresti": "bucharest",
+    "bucharest": "bucharest",
+    "iasi": "iasi",
+    "timisoara": "timisoara",
+    "brasov": "brasov",
+    "munich": "munich",
+    "munchen": "munich",
+}
+
 PLANNER_SYSTEM_PROMPT = """\
 You are a query planner for a recruiting search engine.
 
