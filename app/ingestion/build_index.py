@@ -17,8 +17,9 @@ from app.core.secrets import load_secrets
 try:
     # Pinecone SDK v3+
     from pinecone import Pinecone
+    from pinecone_text.sparse import BM25Encoder
 except Exception as e:  # pragma: no cover
-    raise RuntimeError("Missing dependency: pinecone. Install with: pip install pinecone") from e
+    raise RuntimeError("Missing dependency: pinecone or pinecone-text. Install with: pip install pinecone pinecone-text") from e
 
 try:
     import boto3
@@ -448,6 +449,8 @@ def main() -> None:
         return
 
     embeddings = OpenAIEmbeddings(api_key=openai_key, model=args.embed_model)
+    # Hybrid search: BM25
+    bm25 = BM25Encoder.default()
 
     pc = Pinecone(api_key=pinecone_key)
     index = get_pinecone_index(pc, index_name)
@@ -466,10 +469,17 @@ def main() -> None:
         batch_mds = [metadatas[i] for i in batch]
 
         vecs = embeddings.embed_documents(batch_texts)
+        # Hybrid search: generate sparse vectors
+        sparse_vecs = bm25.encode_documents(batch_texts)
 
         vectors = []
-        for _id, values, md in zip(batch_ids, vecs, batch_mds):
-            vectors.append({"id": _id, "values": values, "metadata": md})
+        for _id, values, sparse, md in zip(batch_ids, vecs, sparse_vecs, batch_mds):
+            vectors.append({
+                "id": _id,
+                "values": values,
+                "sparse_values": sparse,
+                "metadata": md
+            })
 
         index.upsert(vectors=vectors, namespace=namespace)
         print(f"[INFO] Batch {batch_idx}: upserted {len(vectors)} vectors")

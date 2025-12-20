@@ -11,8 +11,9 @@ from langchain_openai import OpenAIEmbeddings
 
 try:
     from pinecone import Pinecone
+    from pinecone_text.sparse import BM25Encoder
 except Exception as e:  # pragma: no cover
-    raise RuntimeError("Missing dependency: pinecone. Install with: pip install pinecone") from e
+    raise RuntimeError("Missing dependency: pinecone or pinecone-text. Install with: pip install pinecone pinecone-text") from e
 
 from app.core.config import get_settings as get_app_settings
 
@@ -94,11 +95,16 @@ def retrieve_profiles(
     embeddings = OpenAIEmbeddings(api_key=s.openai_api_key, model=s.embed_model)
     qvec = embeddings.embed_query(query)
 
+    # Hybrid Search: Generate sparse vector
+    bm25 = BM25Encoder.default()
+    sparse_vec = bm25.encode_queries(query)
+
     pc = Pinecone(api_key=s.pinecone_api_key)
     index = get_pinecone_index(pc, s.pinecone_index_name)
 
     resp = index.query(
         vector=qvec,
+        sparse_vector=sparse_vec,
         top_k=top_k,
         namespace=s.pinecone_namespace,
         include_metadata=True,

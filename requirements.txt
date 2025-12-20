@@ -16,6 +16,7 @@ pydantic-settings
 pinecone
 cohere
 langchain-cohere
+pinecone-text
 
 # Testing
 pytest
