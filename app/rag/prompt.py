@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 ALLOWED_FILTER_FIELDS = {
     "eyewear_present",
@@ -136,21 +136,58 @@ def sanitize_filter(flt: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 
 def format_candidates_for_prompt(candidates: List[Dict[str, Any]], max_chars: int = 1200) -> str:
+    """
+    Optimized formatter that constructs a LEAN payload for the LLM.
+    Strips raw embedding text (visual descriptions) and irrelevant URLs.
+    """
     blocks: List[str] = []
     for i, c in enumerate(candidates, start=1):
         md = c.get("metadata", {}) or {}
-        # Construct lean text
-        lines = [
-            f"Candidate #{i}",
-            f"id: {c.get('id')}",
-            f"headline: {md.get('headline', '')}",
-            f"role: {md.get('job_title', '')}",
-            f"company: {md.get('company', '')}",
-            f"skills: {', '.join(md.get('tech_tokens', []) or [])}",
-            f"experience_years: {md.get('minimum_estimated_years_of_exp', '')}",
-            f"location: {md.get('location', '')}",
-        ]
-        blocks.append("\n".join(lines))
+        score = c.get("score")
+
+        # Build structured lean profile from metadata
+        lines = []
+        if md.get("headline"):
+            lines.append(f"Headline: {md['headline']}")
+        if md.get("job_title"):
+            lines.append(f"Role: {md['job_title']}")
+        if md.get("company"):
+            lines.append(f"Company: {md['company']}")
+
+        # Tech tokens
+        tech = md.get("tech_tokens", [])
+        if tech:
+            # limit tech tokens to avoid spam
+            lines.append(f"Skills: {', '.join(tech[:25])}")
+
+        if md.get("location"):
+            lines.append(f"Location: {md['location']}")
+        if md.get("minimum_estimated_years_of_exp"):
+            lines.append(f"Exp: {md['minimum_estimated_years_of_exp']} yrs")
+
+        # Education
+        if md.get("school"):
+            lines.append(f"School: {md['school']}")
+
+        lean_text = "\n".join(lines)
+
+        # Fallback if metadata is somehow empty, use truncated text but keep it short
+        if not lean_text.strip():
+             text = (c.get("text") or "").strip()
+             lean_text = text[:600] + "..." if len(text) > 600 else text
+
+        blocks.append(
+            "\n".join(
+                [
+                    f"Candidate #{i}",
+                    f"id: {c.get('id')}",
+                    f"score: {score}",
+                    f"full_name: {md.get('full_name', 'Unknown')}",
+                    "Summary:",
+                    lean_text,
+                ]
+            )
+        )
     return "\n\n---\n\n".join(blocks)
 
 
