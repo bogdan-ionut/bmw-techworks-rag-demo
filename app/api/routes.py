@@ -270,7 +270,17 @@ async def rag_query_stream(request: Request, body: QueryBody) -> StreamingRespon
                     # Extract JSON payload from data: ...
                     # Expected format: event: metadata\ndata: <json>\n\n
                     lines = chunk.strip().split("\n")
-                    json_str = lines[1].replace("data: ", "", 1)
+                    json_str = None
+                    for line in lines:
+                        if line.startswith("data:"):
+                            json_str = line.replace("data:", "", 1).strip()
+                            break
+
+                    if not json_str:
+                        # Could not find data line or it was empty
+                        yield chunk
+                        continue
+
                     payload = json.loads(json_str)
 
                     # Format candidates to sources

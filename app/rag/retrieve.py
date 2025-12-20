@@ -96,7 +96,12 @@ def retrieve_profiles(
     qvec = embeddings.embed_query(query)
 
     # Hybrid Search: Generate sparse vector
-    bm25 = BM25Encoder.default()
+    bm25_path = "data/bm25_params.json"
+    try:
+        bm25 = BM25Encoder().load(bm25_path)
+    except Exception as e:
+        print(f"[WARN] Could not load BM25 params from {bm25_path}, using default. Error: {e}")
+        bm25 = BM25Encoder.default()
     sparse_vec = bm25.encode_queries(query)
 
     pc = Pinecone(api_key=s.pinecone_api_key)
