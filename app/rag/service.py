@@ -6,7 +6,7 @@ import asyncio
 import copy
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, AsyncGenerator
 from functools import partial
 
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -18,6 +18,7 @@ from app.rag.rerank import rerank_candidates
 from app.rag.prompt import (
     PLANNER_SYSTEM_PROMPT,
     ANSWER_SYSTEM_PROMPT,
+    ANSWER_STREAM_SYSTEM_PROMPT,
     format_candidates_for_prompt,
     ALLOWED_FILTER_FIELDS,
     sanitize_filter,
@@ -383,15 +384,17 @@ def _matches_filter(metadata: Dict[str, Any], filter_dict: Optional[Dict[str, An
     return True
 
 
-async def rag_search_async(
+async def prepare_search_context(
     user_query: str,
     explicit_filter: Optional[Dict[str, Any]] = None,
     top_k: int = 60,
     rerank_top_n: int = 15,
-    llm_top_n: int = 8,
-    use_planner: bool = True,
-    with_llm: bool = True
+    use_planner: bool = True
 ) -> Dict[str, Any]:
+    """
+    Executes the retrieval, planning, filtering, and reranking steps.
+    Returns the context needed for answer generation.
+    """
     s = get_settings()
     start_time = time.time()
     loop = asyncio.get_running_loop()
@@ -400,10 +403,6 @@ async def rag_search_async(
     should_use_planner = use_planner and (complexity != "SIMPLE")
 
     # 1. Speculative Retrieval (Parallel Task)
-    # We use explicit_filter (normalized) but NO hard/planner filters yet.
-    # We use raw user_query to maximize semantic recall of visual terms.
-
-    # Pre-normalize explicit filter to ensure it works in DB
     speculative_filter = copy.deepcopy(explicit_filter)
     speculative_filter = normalize_location_filter(speculative_filter)
     speculative_filter = expand_name_filter(speculative_filter)
@@ -412,7 +411,7 @@ async def rag_search_async(
         None,
         partial(
             retrieve_profiles,
-            query=user_query, # Use raw query for speculative search
+            query=user_query,
             top_k=top_k,
             metadata_filter=speculative_filter,
         )
@@ -431,28 +430,21 @@ async def rag_search_async(
         docs = retrieval_res
         plan = planner_res
     else:
-        # If no planner, just await retrieval
         docs = await task_retrieval
         plan = {}
 
     t1 = time.time()
-    retrieval_sec = t1 - start_time # Approximate
+    retrieval_sec = t1 - start_time
 
     # 3. Process Filters & In-Memory Filtering
-
-    # Regex hard filters (run now, it's fast)
     hard_filter, cleaned_semantic = hard_filters_from_text(user_query)
-
     plan_filter = plan.get("filter")
-    # Use planner's semantic query if available for downstream usage
     semantic_query = (plan.get("semantic_query") or cleaned_semantic or user_query).strip()
 
-    # Merge: explicit (already applied but keeping for completeness) + hard + plan
     merged_filter = sanitize_filter(merge_filters(merge_filters(hard_filter, plan_filter), explicit_filter))
     merged_filter = normalize_location_filter(merged_filter)
     merged_filter = expand_name_filter(merged_filter)
 
-    # Convert docs to candidates
     candidates: List[Dict[str, Any]] = []
     for d in docs:
         md = dict(d.metadata or {})
@@ -469,12 +461,10 @@ async def rag_search_async(
             }
         )
 
-    # APPLY IN-MEMORY FILTERING
-    # This enforces the "HARD" filters (eyewear, exp) that were discovered by planner/regex
-    # but might have been missed by speculative retrieval.
+    # Apply In-Memory Filtering
     candidates = [c for c in candidates if _matches_filter(c["metadata"], merged_filter)]
 
-    # rerank (optional)
+    # Rerank
     rerank_sec = 0.0
     if s.cohere_api_key and candidates:
         t_rerank_start = time.time()
@@ -491,18 +481,45 @@ async def rag_search_async(
         )
         rerank_sec = time.time() - t_rerank_start
     else:
-        # Just slice if no reranker
         candidates = candidates[:rerank_top_n]
+
+    return {
+        "user_query": user_query,
+        "semantic_query": semantic_query,
+        "filters_applied": merged_filter,
+        "candidates": candidates,
+        "complexity": complexity,
+        "metrics": {
+            "start_time": start_time,
+            "retrieval_sec": retrieval_sec,
+            "rerank_sec": rerank_sec,
+        }
+    }
+
+
+async def rag_search_async(
+    user_query: str,
+    explicit_filter: Optional[Dict[str, Any]] = None,
+    top_k: int = 60,
+    rerank_top_n: int = 15,
+    llm_top_n: int = 8,
+    use_planner: bool = True,
+    with_llm: bool = True
+) -> Dict[str, Any]:
+    # Use helper
+    ctx = await prepare_search_context(
+        user_query, explicit_filter, top_k, rerank_top_n, use_planner
+    )
+
+    candidates = ctx["candidates"]
+    metrics = ctx["metrics"]
 
     answer = None
     llm_sec = 0.0
     if with_llm:
-        # Stage 3: LLM Generation (Slice to top 8)
         llm_candidates = candidates[:llm_top_n]
-
-        if complexity == "SIMPLE":
-            # Fast Path: Skip LLM for simple queries
-            try:
+        if ctx["complexity"] == "SIMPLE":
+             try:
                 answer = {
                     "answer": "Here are the top matches for your search. Use the filters to refine the results.",
                     "top_matches": [
@@ -513,34 +530,193 @@ async def rag_search_async(
                         for c in llm_candidates
                     ]
                 }
-            except Exception:
-                # Fallback if fast path fails (unlikely, but defensive)
-                answer = await generate_answer(user_query, llm_candidates, merged_filter)
+             except Exception:
+                 answer = await generate_answer(user_query, llm_candidates, ctx["filters_applied"])
         else:
             t_llm_start = time.time()
-            answer = await generate_answer(user_query, llm_candidates, merged_filter)
+            answer = await generate_answer(user_query, llm_candidates, ctx["filters_applied"])
             llm_sec = time.time() - t_llm_start
     else:
         answer = {
             "answer": "",
-            "filters_applied": merged_filter,
+            "filters_applied": ctx["filters_applied"],
             "top_matches": []
         }
 
     return {
         "query": user_query,
-        "semantic_query": semantic_query,
-        "filters_applied": merged_filter,
+        "semantic_query": ctx["semantic_query"],
+        "filters_applied": ctx["filters_applied"],
         "top_k": top_k,
         "rerank_top_n": rerank_top_n,
         "results": candidates,
         "answer": answer,
-        "latency_sec": time.time() - start_time,
-        "retrieval_sec": retrieval_sec,
-        "rerank_sec": rerank_sec,
+        "latency_sec": time.time() - metrics["start_time"],
+        "retrieval_sec": metrics["retrieval_sec"],
+        "rerank_sec": metrics["rerank_sec"],
         "llm_sec": llm_sec,
-        "query_type": complexity
+        "query_type": ctx["complexity"]
     }
+
+
+async def generate_answer_stream(
+    user_query: str,
+    candidates: List[Dict[str, Any]],
+    filters_applied: Optional[Dict[str, Any]]
+) -> AsyncGenerator[Dict[str, Any], None]:
+    """
+    Generates answer stream tokens and final metadata.
+    Yields:
+      {"type": "token", "content": "..."}
+      {"type": "metadata", "content": dict}
+    """
+    s = get_settings()
+    llm = ChatOpenAI(
+        api_key=s.openai_api_key,
+        model=s.openai_model,
+        temperature=s.temperature,
+        max_tokens=max(s.max_tokens, SAFE_MIN_LLM_MAX_TOKENS),
+    )
+
+    user_msg = {
+        "query": user_query,
+        "filters_applied": filters_applied,
+        "candidates_text": format_candidates_for_prompt(candidates),
+    }
+
+    stream = llm.astream(
+        [
+            SystemMessage(content=ANSWER_STREAM_SYSTEM_PROMPT),
+            HumanMessage(content=json.dumps(user_msg, ensure_ascii=False)),
+        ]
+    )
+
+    delimiter = "###METADATA###"
+    buffer = ""
+    metadata_mode = False
+
+    async for chunk in stream:
+        token = chunk.content
+        if not metadata_mode:
+            buffer += token
+            if delimiter in buffer:
+                # Split buffer
+                pre, post = buffer.split(delimiter, 1)
+                if pre:
+                    yield {"type": "token", "content": pre}
+                metadata_mode = True
+                buffer = post # Start accumulating JSON
+            else:
+                # Safety: Check if buffer ends with a partial delimiter.
+                # If not, we can flush safe parts.
+                # Simplification: Only hold if buffer ends with partial delimiter.
+                # But delimiter is long.
+                # Let's keep it simple: If buffer is very long and no delimiter, yield.
+                if len(buffer) > len(delimiter) * 2:
+                    safe_len = len(buffer) - len(delimiter)
+                    yield {"type": "token", "content": buffer[:safe_len]}
+                    buffer = buffer[safe_len:]
+        else:
+            buffer += token
+
+    # Stream finished
+    if not metadata_mode:
+        # Delimiter never found? Just yield buffer as text.
+        if buffer:
+            yield {"type": "token", "content": buffer}
+        # And empty metadata
+        yield {"type": "metadata", "content": {"top_matches": []}}
+    else:
+        # Parse JSON from buffer
+        try:
+            meta = safe_json_loads(buffer)
+        except Exception:
+            meta = {"top_matches": []}
+        yield {"type": "metadata", "content": meta}
+
+
+async def rag_search_stream_generator(
+    user_query: str,
+    explicit_filter: Optional[Dict[str, Any]] = None,
+    top_k: int = 60,
+    rerank_top_n: int = 15,
+    llm_top_n: int = 5,
+    use_planner: bool = True
+) -> AsyncGenerator[str, None]:
+    """
+    Orchestrates RAG and yields SSE events.
+    """
+    # 1. Prepare context
+    ctx = await prepare_search_context(
+        user_query, explicit_filter, top_k, rerank_top_n, use_planner
+    )
+
+    candidates = ctx["candidates"]
+    metrics = ctx["metrics"]
+    llm_candidates = candidates[:llm_top_n]
+
+    # 2. Check simple path
+    if ctx["complexity"] == "SIMPLE":
+        # Simulate stream for simple query
+        text = "Here are the top matches for your search. Use the filters to refine the results."
+        for word in text.split(" "):
+            yield f"data: {word} \n\n"
+            await asyncio.sleep(0.01)
+
+        # Metadata
+        meta = {
+            "top_matches": [
+                {"id": c.get("id"), "why_match": "High relevance match."}
+                for c in llm_candidates
+            ]
+        }
+
+        # We need to construct the final payload similar to regular response
+        # But we yield it as 'event: metadata'
+
+        final_payload = {
+            "answer": {"answer": text, "top_matches": meta["top_matches"]}, # reconstruct structure
+            "candidates": candidates, # pass raw candidates so API can hydrate
+            "metrics": metrics,
+            "filters_applied": ctx["filters_applied"],
+            "ctx": ctx
+        }
+
+        yield f"event: metadata\ndata: {json.dumps(final_payload, default=str)}\n\n"
+        return
+
+    # 3. LLM Stream
+    t_llm_start = time.time()
+    async for chunk in generate_answer_stream(user_query, llm_candidates, ctx["filters_applied"]):
+        if chunk["type"] == "token":
+            # SSE data format
+            # Newlines in token might break SSE if not handled?
+            # Standard SSE: data: payload\n\n
+            # If payload has newline, it's usually data: line1\ndata: line2\n\n
+            # But here we stream tokens.
+            # Easiest is JSON encoded string or just raw if no newlines.
+            # Token often has newlines.
+            safe_content = json.dumps(chunk["content"])
+            # Remove surrounding quotes? No, safer to keep valid JSON string
+            # Or just replace \n with \\n?
+            # Frontend expects `data: <token>`
+            # If I send `data: "hello"` (quoted), frontend needs to JSON parse.
+            # If I send `data: hello` (unquoted), frontend takes as string.
+            # If token is `\n`, `data: \n` is invalid.
+            # Let's send valid JSON string.
+            yield f"data: {safe_content}\n\n"
+
+        elif chunk["type"] == "metadata":
+            metrics["llm_sec"] = time.time() - t_llm_start
+
+            # Construct final metadata
+            final_payload = {
+                "answer": {"top_matches": chunk["content"].get("top_matches", [])},
+                "candidates": candidates, # needed for hydration
+                "metrics": metrics,
+                "filters_applied": ctx["filters_applied"]
+            }
+            yield f"event: metadata\ndata: {json.dumps(final_payload, default=str)}\n\n"
 
 
 def _cli() -> None:
