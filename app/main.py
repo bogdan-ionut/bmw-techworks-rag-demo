@@ -202,7 +202,7 @@ async def verify_password(
     response: Response,
     settings: Settings = Depends(get_settings)
 ):
-    if body.password == settings.demo_password:
+    if body.password.strip() == settings.demo_password:
         # Set HttpOnly cookie valid for session (or max_age)
         response.set_cookie(
             key="access_token",

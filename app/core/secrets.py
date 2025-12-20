@@ -37,6 +37,7 @@ def _env_fallback() -> Dict[str, str]:
         "COHERE_API_KEY": _env("COHERE_API_KEY"),
         "PINECONE_INDEX_NAME": pinecone_index,
         "PINECONE_NAMESPACE": pinecone_ns,
+        "DEMO_PASSWORD": _env("DEMO_PASSWORD"),
     }
 
 
@@ -97,6 +98,7 @@ def load_secrets(secret_id: Optional[str] = None, region: Optional[str] = None) 
             "COHERE_API_KEY": pick("COHERE_API_KEY"),
             "PINECONE_INDEX_NAME": pinecone_index or fb.get("PINECONE_INDEX_NAME", ""),
             "PINECONE_NAMESPACE": pick("PINECONE_NAMESPACE") or "profiles",
+            "DEMO_PASSWORD": pick("DEMO_PASSWORD"),
         }
 
     except (NoCredentialsError, BotoCoreError, ClientError, ValueError, json.JSONDecodeError) as e:
