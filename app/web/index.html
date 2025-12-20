@@ -214,6 +214,79 @@
       color: var(--text-primary);
     }
 
+    /* --- LOCKDOWN OVERLAY --- */
+    #lockdownOverlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(255, 255, 255, 0.2);
+        backdrop-filter: blur(12px);
+        z-index: 9999;
+        display: none; /* Toggled by JS */
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+    }
+
+    .lockdown-card {
+        background: white;
+        padding: 40px;
+        border-radius: 24px;
+        box-shadow: 0 20px 50px rgba(0,0,0,0.2);
+        text-align: center;
+        max-width: 400px;
+        width: 90%;
+        border: 1px solid var(--border-subtle);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .lockdown-title {
+        font-size: 24px;
+        font-weight: 800;
+        margin-bottom: 12px;
+        color: var(--text-primary);
+    }
+
+    .lockdown-input {
+        width: 100%;
+        padding: 12px 16px;
+        border: 1px solid var(--border-medium);
+        border-radius: var(--radius-md);
+        margin: 20px 0;
+        font-size: 16px;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+    .lockdown-input:focus {
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .lockdown-btn {
+        background: var(--accent-primary);
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: var(--radius-md);
+        font-weight: 600;
+        cursor: pointer;
+        width: 100%;
+        font-size: 16px;
+        transition: transform 0.1s;
+    }
+    .lockdown-btn:active { transform: scale(0.98); }
+
+    .lockdown-error {
+        color: var(--accent-error);
+        font-size: 13px;
+        margin-top: 12px;
+        min-height: 20px;
+        font-weight: 500;
+    }
+
     /* --- CHRISTMAS BANNER STYLES --- */
     .christmas-banner {
         position: relative;
@@ -993,6 +1066,20 @@
     </div>
   </header>
 
+  <!-- Lockdown Overlay -->
+  <div id="lockdownOverlay">
+      <div class="lockdown-card">
+          <div style="font-size: 40px; margin-bottom: 10px;">🎄🔒</div>
+          <h2 class="lockdown-title">Santa's Safe Mode</h2>
+          <p style="color: var(--text-secondary); line-height: 1.5;">
+              Ho Ho Ho! Access to the Talent Intelligence Platform is restricted to authorized elves only.
+          </p>
+          <input type="password" id="lockdownPass" class="lockdown-input" placeholder="Enter secret phrase..." />
+          <button id="lockdownSubmit" class="lockdown-btn">Unlock</button>
+          <div id="lockdownError" class="lockdown-error"></div>
+      </div>
+  </div>
+
   <div class="christmas-banner">
       <div class="snowflake" style="left: 15%; animation-duration: 8s; animation-delay: 0s;">❄️</div>
       <div class="snowflake" style="left: 35%; animation-duration: 10s; animation-delay: 2s;">❄️</div>
@@ -1609,8 +1696,57 @@
     }
 
     // Event Listeners
-    document.addEventListener('DOMContentLoaded', () => {
-      populateLlmSelector();
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Check auth status by hitting a protected endpoint
+      try {
+          const check = await fetch('/meta');
+          if (check.status === 403) {
+              document.getElementById('lockdownOverlay').style.display = 'flex';
+          } else {
+              populateLlmSelector();
+          }
+      } catch (e) {
+          console.error("Auth check failed", e);
+      }
+    });
+
+    // Lockdown Logic
+    const lockdownSubmit = document.getElementById('lockdownSubmit');
+    const lockdownPass = document.getElementById('lockdownPass');
+    const lockdownError = document.getElementById('lockdownError');
+
+    async function handleUnlock() {
+        const pwd = lockdownPass.value;
+        if (!pwd) return;
+
+        lockdownSubmit.disabled = true;
+        lockdownSubmit.textContent = "Verifying...";
+        lockdownError.textContent = "";
+
+        try {
+            const res = await fetch('/auth/verify', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ password: pwd })
+            });
+
+            if (res.ok) {
+                document.getElementById('lockdownOverlay').style.display = 'none';
+                populateLlmSelector(); // Load the data we couldn't get before
+            } else {
+                lockdownError.textContent = "Incorrect password. The Grinch blocks the way!";
+            }
+        } catch (e) {
+            lockdownError.textContent = "Connection error.";
+        } finally {
+            lockdownSubmit.disabled = false;
+            lockdownSubmit.textContent = "Unlock";
+        }
+    }
+
+    lockdownSubmit.addEventListener('click', handleUnlock);
+    lockdownPass.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') handleUnlock();
     });
 
     retrievalK.addEventListener('blur', () => sanitizeRetrievalValue());

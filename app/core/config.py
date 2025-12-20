@@ -72,6 +72,9 @@ class Settings:
     # Info
     data_jsonl_path: str
 
+    # Auth
+    demo_password: str
+
     def redacted(self) -> Dict[str, Any]:
         def mask(x: str) -> str:
             if not x:
@@ -106,6 +109,7 @@ class Settings:
             "log_level": self.log_level,
             "log_json": self.log_json,
             "data_jsonl_path": self.data_jsonl_path,
+            "demo_password": mask(self.demo_password),
         }
 
 
@@ -173,4 +177,5 @@ def get_settings() -> Settings:
             "DATA_JSONL_PATH",
             "/Users/ionutbogdan/PycharmProjects/bmw-techworks-rag-demo/data/bmw_employees_cleaned_s3.jsonl",
         ),
+        demo_password=pick("DEMO_PASSWORD", ""),
     )
