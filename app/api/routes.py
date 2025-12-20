@@ -188,7 +188,7 @@ async def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
     # Defaults from instruction
     retrieval_top_k = 60
     rerank_top_n = 15
-    llm_top_n = 8
+    llm_top_n = 5
 
     if body.k and body.k > 60:
         retrieval_top_k = body.k
