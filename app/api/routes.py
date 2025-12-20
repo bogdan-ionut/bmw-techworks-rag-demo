@@ -28,6 +28,11 @@ class QueryBody(BaseModel):
     planner: bool = True  # Use LLM query planner
 
 
+class BenchmarkPayload(BaseModel):
+    queries: List[str]
+    iterations: int = 1
+
+
 # -----------------------------
 # Helpers
 # -----------------------------
@@ -225,6 +230,54 @@ async def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
         "rerank_sec": result.get("rerank_sec"),
         "llm_sec": result.get("llm_sec"),
     }
+
+
+@router.post("/benchmark")
+async def benchmark_endpoint(payload: BenchmarkPayload) -> Dict[str, Any]:
+    """
+    Temporary benchmarking endpoint to validate performance and classification logic.
+    """
+    report = []
+
+    for query in payload.queries:
+        query_metrics = {
+            "query": query,
+            "runs": []
+        }
+
+        for _ in range(payload.iterations):
+            # Using default parameters for benchmarking as per instructions
+            # rag_search_async defaults: top_k=60, rerank_top_n=15, llm_top_n=8, use_planner=True, with_llm=True
+            result = await rag_search_async(user_query=query)
+
+            run_data = {
+                "classification": result.get("query_type", "UNKNOWN"),
+                "total_latency": result.get("latency_sec", 0.0),
+                "breakdown": {
+                    "retrieval_sec": result.get("retrieval_sec", 0.0),
+                    "rerank_sec": result.get("rerank_sec", 0.0),
+                    "llm_sec": result.get("llm_sec", 0.0)
+                },
+                "results_count": len(result.get("results", []))
+            }
+            query_metrics["runs"].append(run_data)
+
+        # Aggregate logic could be here if we want average, but list of runs is detailed enough
+        # We can just return the last classification (should be same) and average latencies if needed.
+        # But the instructions say "Returnează un JSON agregat care să arate clar diferența".
+        # Let's compute average for the query.
+
+        avg_latency = sum(r["total_latency"] for r in query_metrics["runs"]) / payload.iterations
+        classification = query_metrics["runs"][0]["classification"] if query_metrics["runs"] else "UNKNOWN"
+
+        report.append({
+            "query": query,
+            "classification": classification,
+            "avg_latency": avg_latency,
+            "runs": query_metrics["runs"]
+        })
+
+    return {"benchmark_results": report}
 
 
 @router.get("/meta", include_in_schema=False)
