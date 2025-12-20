@@ -414,9 +414,23 @@ async def rag_search_async(
     if with_llm:
         # Stage 3: LLM Generation (Slice to top 8)
         llm_candidates = candidates[:llm_top_n]
-        t_llm_start = time.time()
-        answer = await generate_answer(user_query, llm_candidates, merged_filter)
-        llm_sec = time.time() - t_llm_start
+
+        if complexity == "SIMPLE":
+            # Fast Path: Skip LLM for simple queries
+            answer = {
+                "answer": "Here are the top matches for your search. Use the filters to refine the results.",
+                "top_matches": [
+                    {
+                        "id": c.get("id"),
+                        "why_match": "High relevance match."
+                    }
+                    for c in llm_candidates
+                ]
+            }
+        else:
+            t_llm_start = time.time()
+            answer = await generate_answer(user_query, llm_candidates, merged_filter)
+            llm_sec = time.time() - t_llm_start
     else:
         answer = {
             "answer": "",
