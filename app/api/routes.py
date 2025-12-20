@@ -9,7 +9,6 @@ from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, Field
 
 from app.rag.service import rag_search_async
-from app.rag.prompt import CITY_NORMALIZATION_MAP
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -18,6 +17,8 @@ logger = logging.getLogger(__name__)
 # DTO
 # -----------------------------
 class QueryBody(BaseModel):
+    model_config = {"frozen": True}
+
     query: str = Field(..., min_length=1)
     with_llm: bool = True
     k: Optional[int] = None  # retrieval top_k override
@@ -29,6 +30,8 @@ class QueryBody(BaseModel):
 
 
 class BenchmarkPayload(BaseModel):
+    model_config = {"frozen": True}
+
     queries: List[str]
     iterations: int = 1
 
