@@ -216,6 +216,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build Pinecone index (Hybrid) from jsonl")
     parser.add_argument("--jsonl", type=str, default=str(DEFAULT_JSONL_PATH))
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    # --- AM ADĂUGAT LINIA CARE LIPSEA AICI ---
+    parser.add_argument("--embed-model", type=str, default=DEFAULT_EMBED_MODEL)
+    # -----------------------------------------
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--clear", action="store_true")
     args = parser.parse_args()
