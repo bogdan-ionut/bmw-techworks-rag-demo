@@ -449,8 +449,14 @@ def main() -> None:
         return
 
     embeddings = OpenAIEmbeddings(api_key=openai_key, model=args.embed_model)
-    # Hybrid search: BM25
-    bm25 = BM25Encoder.default()
+
+    # Hybrid search: BM25 (fit on corpus)
+    print(f"[INFO] Fitting BM25 on {len(texts)} text chunks...")
+    bm25 = BM25Encoder()
+    bm25.fit(texts)
+    bm25_path = DATA_DIR / "bm25_params.json"
+    bm25.dump(str(bm25_path))
+    print(f"[INFO] Saved BM25 params to {bm25_path}")
 
     pc = Pinecone(api_key=pinecone_key)
     index = get_pinecone_index(pc, index_name)
