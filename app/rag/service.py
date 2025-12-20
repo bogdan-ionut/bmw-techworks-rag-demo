@@ -7,6 +7,7 @@ import asyncio
 import copy
 import re
 from typing import Any, Dict, List, Optional, Tuple
+from functools import partial
 
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_openai import ChatOpenAI
@@ -232,7 +233,36 @@ def expand_name_filter(f: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     return _visit(new_f)
 
 
-def plan_query_with_llm(user_query: str) -> Dict[str, Any]:
+def _classify_query_complexity(query: str) -> str:
+    """
+    Classifies the query complexity to determine if we can skip the LLM planner.
+    """
+    q_lower = query.lower()
+
+    # 1. Visual keywords
+    visual_keywords = ["glasses", "photo", "beard"]
+    if any(k in q_lower for k in visual_keywords):
+        return "VISUAL"
+
+    # 2. Check length and complex connectors
+    words = q_lower.split()
+    is_short = len(words) < 6
+
+    # Connectors: "and", "or", "who", "experience"
+    connectors = [r"\band\b", r"\bor\b", r"\bwho\b", r"\bexperience\b"]
+    has_complex = False
+    for pattern in connectors:
+        if re.search(pattern, q_lower):
+            has_complex = True
+            break
+
+    if is_short and not has_complex:
+        return "SIMPLE"
+
+    return "COMPLEX"
+
+
+async def plan_query_with_llm(user_query: str) -> Dict[str, Any]:
     s = get_settings()
 
     llm = ChatOpenAI(
@@ -242,7 +272,7 @@ def plan_query_with_llm(user_query: str) -> Dict[str, Any]:
         max_tokens=1500,
     )
 
-    out = llm.invoke(
+    out = await llm.ainvoke(
         [
             SystemMessage(content=PLANNER_SYSTEM_PROMPT),
             HumanMessage(content=user_query),
@@ -259,7 +289,7 @@ def plan_query_with_llm(user_query: str) -> Dict[str, Any]:
     return plan
 
 
-def generate_answer(user_query: str, candidates: List[Dict[str, Any]], filters_applied: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+async def generate_answer(user_query: str, candidates: List[Dict[str, Any]], filters_applied: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     s = get_settings()
 
     llm = ChatOpenAI(
@@ -275,7 +305,7 @@ def generate_answer(user_query: str, candidates: List[Dict[str, Any]], filters_a
         "candidates_text": format_candidates_for_prompt(candidates),
     }
 
-    out = llm.invoke(
+    out = await llm.ainvoke(
         [
             SystemMessage(content=ANSWER_SYSTEM_PROMPT),
             HumanMessage(content=json.dumps(user_msg, ensure_ascii=False)),
@@ -291,13 +321,16 @@ def generate_answer(user_query: str, candidates: List[Dict[str, Any]], filters_a
         }
 
 
-def rag_search(user_query: str, use_planner: bool = True) -> Dict[str, Any]:
+async def rag_search_async(user_query: str, use_planner: bool = True) -> Dict[str, Any]:
     s = get_settings()
+
+    complexity = _classify_query_complexity(user_query)
+    should_use_planner = use_planner and (complexity != "SIMPLE")
 
     hard_filter, cleaned_semantic = hard_filters_from_text(user_query)
 
-    if use_planner:
-        plan = plan_query_with_llm(user_query)
+    if should_use_planner:
+        plan = await plan_query_with_llm(user_query)
         plan_filter = plan.get("filter")
         semantic_query = (plan.get("semantic_query") or cleaned_semantic or user_query).strip()
         top_k = int(plan.get("top_k", 30))
@@ -310,12 +343,18 @@ def rag_search(user_query: str, use_planner: bool = True) -> Dict[str, Any]:
         rerank_top_n = s.cohere_rerank_top_n
 
     merged_filter = sanitize_filter(merge_filters(hard_filter, plan_filter))
+    merged_filter = normalize_location_filter(merged_filter)
     merged_filter = expand_name_filter(merged_filter)
 
-    docs = retrieve_profiles(
-        query=semantic_query,
-        top_k=top_k,
-        metadata_filter=merged_filter,
+    loop = asyncio.get_running_loop()
+    docs = await loop.run_in_executor(
+        None,
+        partial(
+            retrieve_profiles,
+            query=semantic_query,
+            top_k=top_k,
+            metadata_filter=merged_filter,
+        )
     )
 
     candidates: List[Dict[str, Any]] = []
@@ -332,17 +371,21 @@ def rag_search(user_query: str, use_planner: bool = True) -> Dict[str, Any]:
 
     # rerank (optional)
     if s.cohere_api_key:
-        candidates = rerank_candidates(
-            user_query,
-            candidates,
-            cohere_api_key=s.cohere_api_key,
-            model=s.cohere_rerank_model,
-            top_n=rerank_top_n,
+        candidates = await loop.run_in_executor(
+            None,
+            partial(
+                rerank_candidates,
+                user_query,
+                candidates,
+                cohere_api_key=s.cohere_api_key,
+                model=s.cohere_rerank_model,
+                top_n=rerank_top_n,
+            )
         )
     else:
         candidates = candidates[:rerank_top_n]
 
-    answer = generate_answer(user_query, candidates, merged_filter)
+    answer = await generate_answer(user_query, candidates, merged_filter)
 
     return {
         "query": user_query,
@@ -361,7 +404,7 @@ def _cli() -> None:
     parser.add_argument("--no-planner", action="store_true", help="Disable LLM query planner")
     args = parser.parse_args()
 
-    out = rag_search(args.query, use_planner=not args.no_planner)
+    out = asyncio.run(rag_search_async(args.query, use_planner=not args.no_planner))
     print(json.dumps(out["answer"], ensure_ascii=False, indent=2))
 
 

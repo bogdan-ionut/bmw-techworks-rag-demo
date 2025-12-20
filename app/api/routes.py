@@ -27,6 +27,7 @@ from app.rag.prompt import (
     sanitize_filter,
 )
 from app.rag.rerank import rerank_candidates
+from app.rag.service import _classify_query_complexity
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -847,6 +848,10 @@ def search_endpoint(
         except Exception:
             explicit_filter = None
 
+    # Optimization: Skip planner for simple queries to reduce latency
+    if planner and _classify_query_complexity(query) == "SIMPLE":
+        planner = False
+
     if planner:
         planned = _run_query_planner(request, query, selected_provider, selected_model)
         semantic_query = planned.get("semantic_query") or query
@@ -920,7 +925,12 @@ def rag_query(request: Request, body: QueryBody) -> Dict[str, Any]:
 
     start = time.time()
 
-    if body.planner:
+    use_planner = body.planner
+    # Optimization: Skip planner for simple queries
+    if use_planner and _classify_query_complexity(query) == "SIMPLE":
+        use_planner = False
+
+    if use_planner:
         planned = _run_query_planner(request, query, selected_provider, selected_model)
         semantic_query = planned.get("semantic_query") or query
         inferred_filter = _normalize_filter_values(sanitize_filter(planned.get("filter")))
