@@ -237,29 +237,33 @@ def _classify_query_complexity(query: str) -> str:
     """
     Classifies the query complexity to determine if we can skip the LLM planner.
     """
-    q_lower = query.lower()
+    try:
+        q_lower = query.lower()
 
-    # 1. Visual keywords
-    visual_keywords = ["glasses", "photo", "beard"]
-    if any(k in q_lower for k in visual_keywords):
-        return "VISUAL"
+        # 1. Visual keywords
+        visual_keywords = ["glasses", "photo", "beard"]
+        if any(k in q_lower for k in visual_keywords):
+            return "VISUAL"
 
-    # 2. Check length and complex connectors
-    words = q_lower.split()
-    is_short = len(words) < 6
+        # 2. Check length and complex connectors
+        words = q_lower.split()
+        is_short = len(words) < 6
 
-    # Connectors: "and", "or", "who", "experience"
-    connectors = [r"\band\b", r"\bor\b", r"\bwho\b", r"\bexperience\b"]
-    has_complex = False
-    for pattern in connectors:
-        if re.search(pattern, q_lower):
-            has_complex = True
-            break
+        # Connectors: "and", "or", "who", "experience"
+        connectors = [r"\band\b", r"\bor\b", r"\bwho\b", r"\bexperience\b"]
+        has_complex = False
+        for pattern in connectors:
+            if re.search(pattern, q_lower):
+                has_complex = True
+                break
 
-    if is_short and not has_complex:
-        return "SIMPLE"
+        if is_short and not has_complex:
+            return "SIMPLE"
 
-    return "COMPLEX"
+        return "COMPLEX"
+    except Exception:
+        # Safety net: Fallback to full LLM processing on any error
+        return "COMPLEX"
 
 
 async def plan_query_with_llm(user_query: str) -> Dict[str, Any]:
@@ -417,16 +421,20 @@ async def rag_search_async(
 
         if complexity == "SIMPLE":
             # Fast Path: Skip LLM for simple queries
-            answer = {
-                "answer": "Here are the top matches for your search. Use the filters to refine the results.",
-                "top_matches": [
-                    {
-                        "id": c.get("id"),
-                        "why_match": "High relevance match."
-                    }
-                    for c in llm_candidates
-                ]
-            }
+            try:
+                answer = {
+                    "answer": "Here are the top matches for your search. Use the filters to refine the results.",
+                    "top_matches": [
+                        {
+                            "id": c.get("id"),
+                            "why_match": "High relevance match."
+                        }
+                        for c in llm_candidates
+                    ]
+                }
+            except Exception:
+                # Fallback if fast path fails (unlikely, but defensive)
+                answer = await generate_answer(user_query, llm_candidates, merged_filter)
         else:
             t_llm_start = time.time()
             answer = await generate_answer(user_query, llm_candidates, merged_filter)
